@@ -8,18 +8,20 @@ export default function RootPage() {
   const router = useRouter();
   const hydrate = useAuthStore((s) => s.hydrate);
   const session = useAuthStore((s) => s.session);
+  const hydrated = useAuthStore((s) => s.hydrated);
 
   useEffect(() => {
     hydrate();
   }, [hydrate]);
 
   useEffect(() => {
+    if (!hydrated) return;
     if (session) {
       router.replace('/chats');
     } else {
       router.replace('/login');
     }
-  }, [session, router]);
+  }, [session, hydrated, router]);
 
   return null;
 }

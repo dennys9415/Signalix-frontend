@@ -3,23 +3,23 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useChatStore } from '../../store/chat.store';
-import { useAuthStore } from '../../store/auth.store';
 
 export default function ChatsIndexPage() {
   const router = useRouter();
-  const session = useAuthStore((s) => s.session);
   const pendingRecipient = useChatStore((s) => s.pendingRecipient);
   const pendingChatId = useChatStore((s) => s.pendingChatId);
   const clearPendingChatId = useChatStore((s) => s.clearPendingChatId);
+  const loadChats = useChatStore((s) => s.loadChats);
   const sendMessage = useChatStore((s) => s.sendMessage);
 
-  // Navigate to new chat once server confirms it
+  // Navigate to new chat once server confirms it, then refresh the sidebar chat list.
   useEffect(() => {
     if (pendingChatId) {
       clearPendingChatId();
+      loadChats();
       router.replace(`/chats/${pendingChatId}`);
     }
-  }, [pendingChatId, clearPendingChatId, router]);
+  }, [pendingChatId, clearPendingChatId, loadChats, router]);
 
   function handleSend(text: string) {
     if (!pendingRecipient) return;

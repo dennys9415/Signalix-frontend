@@ -11,7 +11,7 @@ import type {
 } from '@signalix/contracts';
 import { MessageStatus, ServerEvent } from '@signalix/contracts';
 import * as api from '../lib/api-client';
-import { wsClient, ServerEvent as WsServerEvent } from '../lib/ws-client';
+import { wsClient } from '../lib/ws-client';
 
 export interface TempMessage {
   tempId: string;
@@ -21,7 +21,7 @@ export interface TempMessage {
   pending: true;
 }
 
-type StoredMessage = MessageDTO | TempMessage;
+export type StoredMessage = MessageDTO | TempMessage;
 
 interface ChatState {
   chats: ChatDTO[];
@@ -37,6 +37,7 @@ interface ChatState {
   loadMessages: (chatId: string) => Promise<void>;
   sendMessage: (payload: { chatId?: string; recipientUsername?: string; ciphertext: string }) => void;
   markRead: (chatId: string, messageId: string) => void;
+  deleteMessageForMe: (chatId: string, messageId: string) => Promise<void>;
   setPendingRecipient: (user: PublicUserDTO | null) => void;
   clearPendingChatId: () => void;
   setPresence: (userId: string, status: 'online' | 'offline') => void;
@@ -111,10 +112,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
         set((s) => {
           const chatMsgs = s.messages[p.chatId];
           if (!chatMsgs) return s;
-          const updated = chatMsgs.map((m) => {
-            if (!('id' in m) || m.id !== p.messageId) return m;
-            return { ...m, state: p.status === MessageStatus.READ ? 'read' : 'delivered' } as MessageDTO;
-          });
+          const newState = p.status === MessageStatus.READ ? 'read' : 'delivered';
+          const idx = chatMsgs.findIndex((m) => 'id' in m && m.id === p.messageId);
+          // No match — nothing to update; return same reference to avoid spurious re-renders.
+          if (idx === -1) return s;
+          const target = chatMsgs[idx];
+          // Already in the target state — no change needed.
+          if ('state' in target && target.state === newState) return s;
+          const updated = chatMsgs.map((m, i) =>
+            i === idx ? ({ ...m, state: newState } as MessageDTO) : m,
+          );
           return { messages: { ...s.messages, [p.chatId]: updated } };
         });
       }
@@ -182,12 +189,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
     wsClient.sendMessageRead({ messageId, chatId });
   },
 
+  async deleteMessageForMe(chatId, messageId) {
+    await api.deleteMessageForMe(messageId);
+    set((s) => ({
+      messages: {
+        ...s.messages,
+        [chatId]: (s.messages[chatId] ?? []).filter(
+          (m) => !('id' in m) || m.id !== messageId,
+        ),
+      },
+    }));
+  },
+
   setPendingRecipient(user) {
     set({ pendingRecipient: user, pendingChatId: null });
   },
 
   clearPendingChatId() {
-    set({ pendingChatId: null });
+    set({ pendingChatId: null, pendingRecipient: null });
   },
 
   setPresence(userId, status) {

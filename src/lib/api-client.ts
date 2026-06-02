@@ -2,11 +2,13 @@ import type {
   ApiResponse,
   AuthSessionDTO,
   ChatDTO,
+  DeleteMessageForMeResponse,
   ExactUsernameLookupResponse,
   GetMessagesResponse,
   LoginRequest,
   RefreshTokenRequest,
   RegisterRequest,
+  UserSearchResponse,
 } from '@signalix/contracts';
 import { loadSession, saveSession } from './token-storage';
 
@@ -102,5 +104,18 @@ export function lookupUser(username: string): Promise<ExactUsernameLookupRespons
   return authed<ExactUsernameLookupResponse>(
     'GET',
     `/api/v1/users/lookup/${encodeURIComponent(username)}`,
+  );
+}
+
+export function searchUsers(q: string, limit?: number): Promise<UserSearchResponse> {
+  const qs = new URLSearchParams({ q });
+  if (limit !== undefined) qs.set('limit', String(limit));
+  return authed<UserSearchResponse>('GET', `/api/v1/users/search?${qs.toString()}`);
+}
+
+export function deleteMessageForMe(messageId: string): Promise<DeleteMessageForMeResponse> {
+  return authed<DeleteMessageForMeResponse>(
+    'POST',
+    `/api/v1/messages/${encodeURIComponent(messageId)}/delete-for-me`,
   );
 }
