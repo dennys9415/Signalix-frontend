@@ -4,11 +4,16 @@ import type {
   ChatDTO,
   DeleteMessageForMeResponse,
   ExactUsernameLookupResponse,
+  ForgotPasswordResponse,
   GetMessagesResponse,
   LoginRequest,
   RefreshTokenRequest,
   RegisterRequest,
+  ResendVerificationResponse,
+  ResetPasswordResponse,
+  UserProfileResponse,
   UserSearchResponse,
+  VerifyEmailResponse,
 } from '@signalix/contracts';
 import { loadSession, saveSession } from './token-storage';
 
@@ -113,9 +118,29 @@ export function searchUsers(q: string, limit?: number): Promise<UserSearchRespon
   return authed<UserSearchResponse>('GET', `/api/v1/users/search?${qs.toString()}`);
 }
 
+export function getMe(): Promise<UserProfileResponse> {
+  return authed<UserProfileResponse>('GET', '/api/v1/users/me');
+}
+
 export function deleteMessageForMe(messageId: string): Promise<DeleteMessageForMeResponse> {
   return authed<DeleteMessageForMeResponse>(
     'POST',
     `/api/v1/messages/${encodeURIComponent(messageId)}/delete-for-me`,
   );
+}
+
+export function forgotPassword(email: string): Promise<ForgotPasswordResponse> {
+  return raw<ForgotPasswordResponse>('POST', '/api/v1/auth/forgot-password', { body: { email } });
+}
+
+export function verifyEmail(token: string): Promise<VerifyEmailResponse> {
+  return raw<VerifyEmailResponse>('POST', '/api/v1/auth/verify-email', { body: { token } });
+}
+
+export function resendVerification(email: string): Promise<ResendVerificationResponse> {
+  return raw<ResendVerificationResponse>('POST', '/api/v1/auth/resend-verification', { body: { email } });
+}
+
+export function resetPassword(token: string, newPassword: string): Promise<ResetPasswordResponse> {
+  return raw<ResetPasswordResponse>('POST', '/api/v1/auth/reset-password', { body: { token, newPassword } });
 }

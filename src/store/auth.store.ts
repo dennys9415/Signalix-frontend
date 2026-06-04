@@ -14,6 +14,7 @@ interface AuthState {
   hydrate: () => Promise<void>;
   login: (identifier: string, password: string) => Promise<void>;
   register: (username: string, email: string, password: string) => Promise<void>;
+  loginWithOAuth: (session: AuthSessionDTO) => void;
   logout: () => void;
 }
 
@@ -88,6 +89,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ error: msg, loading: false });
       throw err;
     }
+  },
+
+  loginWithOAuth(session) {
+    saveSession(session);
+    wsClient.connect(session.accessToken);
+    set({ session, hydrated: true, error: null });
   },
 
   logout() {

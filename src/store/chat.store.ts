@@ -85,6 +85,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       if (event === ServerEvent.MESSAGE_NEW) {
         const p = payload as ServerMessageNewPayload;
+        const isNewChat = !state.chats.some((c) => c.id === p.chatId);
         set((s) => {
           const existing = s.messages[p.chatId] ?? [];
           const alreadyHave = existing.some((m) => 'id' in m && m.id === p.messageId);
@@ -105,6 +106,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         });
         // Acknowledge delivery
         wsClient.sendMessageDelivered({ messageId: p.messageId, chatId: p.chatId });
+        // If this is the first message of a brand-new chat, refresh the sidebar.
+        if (isNewChat) {
+          void get().loadChats();
+        }
       }
 
       if (event === ServerEvent.MESSAGE_DELIVERED || event === ServerEvent.MESSAGE_READ) {

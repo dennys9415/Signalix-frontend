@@ -34,7 +34,10 @@ export function ChatItem({ chat, currentUserId, presence, active }: Props) {
           className="absolute -bottom-0.5 -right-0.5 ring-2 ring-gray-950"
         />
       </div>
-      <span className="truncate text-sm font-medium">{name}</span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">{name}</p>
+        <p className="truncate text-xs text-gray-500">@{other?.user?.username ?? ''}</p>
+      </div>
     </Link>
   );
 }

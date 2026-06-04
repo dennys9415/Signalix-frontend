@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import type { PublicUserDTO } from '@signalix/contracts';
 import { useChatStore } from '../store/chat.store';
 import { useAuthStore } from '../store/auth.store';
-import { searchUsers } from '../lib/api-client';
+import { getMe, searchUsers } from '../lib/api-client';
 import { ChatItem } from './ChatItem';
 import { PresenceIndicator } from './PresenceIndicator';
 
@@ -15,17 +16,22 @@ export function ChatSidebar() {
   const activeChatId = typeof params?.chatId === 'string' ? params.chatId : null;
 
   const session = useAuthStore((s) => s.session);
-  const logout = useAuthStore((s) => s.logout);
   const chats = useChatStore((s) => s.chats);
   const presence = useChatStore((s) => s.presence);
   const setPendingRecipient = useChatStore((s) => s.setPendingRecipient);
 
+  const [currentUser, setCurrentUser] = useState<{ displayName?: string; username: string } | null>(null);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<PublicUserDTO[]>([]);
   const [searched, setSearched] = useState(false);
   const [searching, startSearch] = useTransition();
 
   const currentUserId = session?.userId ?? '';
+
+  useEffect(() => {
+    if (!session) return;
+    getMe().then(({ user }) => setCurrentUser(user)).catch(() => {});
+  }, [session?.userId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -58,23 +64,37 @@ export function ChatSidebar() {
     clearSearch();
   }
 
-  function handleLogout() {
-    logout();
-    router.replace('/login');
-  }
-
   return (
     <aside className="w-72 flex-shrink-0 flex flex-col bg-gray-900 border-r border-gray-800">
       {/* Header */}
       <div className="p-4 flex items-center justify-between border-b border-gray-800">
         <span className="font-semibold text-indigo-400">Signalix</span>
-        <button
-          onClick={handleLogout}
-          className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+        <Link
+          href="/settings/profile"
+          className="text-gray-500 hover:text-gray-300 transition-colors"
+          title="Profile & settings"
         >
-          Logout
-        </button>
+          <SettingsIcon />
+        </Link>
       </div>
+
+      {/* Profile strip */}
+      {currentUser && (
+        <Link
+          href="/settings/profile"
+          className="flex items-center gap-3 px-4 py-3 border-b border-gray-800 hover:bg-gray-800/60 transition-colors"
+        >
+          <div className="w-9 h-9 rounded-full bg-indigo-700 flex items-center justify-center text-sm font-bold uppercase flex-shrink-0 select-none">
+            {(currentUser.displayName ?? currentUser.username).charAt(0)}
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-medium truncate">
+              {currentUser.displayName ?? currentUser.username}
+            </p>
+            <p className="text-xs text-gray-500 truncate">@{currentUser.username}</p>
+          </div>
+        </Link>
+      )}
 
       {/* User search */}
       <form onSubmit={handleSearch} className="p-3 border-b border-gray-800">
@@ -143,5 +163,14 @@ export function ChatSidebar() {
         )}
       </nav>
     </aside>
+  );
+}
+
+function SettingsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="w-4 h-4 fill-none stroke-current stroke-2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
   );
 }

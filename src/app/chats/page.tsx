@@ -11,6 +11,7 @@ export default function ChatsIndexPage() {
   const clearPendingChatId = useChatStore((s) => s.clearPendingChatId);
   const loadChats = useChatStore((s) => s.loadChats);
   const sendMessage = useChatStore((s) => s.sendMessage);
+  const presence = useChatStore((s) => s.presence);
 
   // Navigate to new chat once server confirms it, then refresh the sidebar chat list.
   useEffect(() => {
@@ -33,9 +34,14 @@ export default function ChatsIndexPage() {
           <div className="w-8 h-8 rounded-full bg-indigo-700 flex items-center justify-center text-xs font-semibold uppercase">
             {(pendingRecipient.displayName ?? pendingRecipient.username).charAt(0)}
           </div>
-          <p className="text-sm font-medium">
-            {pendingRecipient.displayName ?? pendingRecipient.username}
-          </p>
+          <div>
+            <p className="text-sm font-medium">
+              {pendingRecipient.displayName ?? pendingRecipient.username}
+            </p>
+            <p className="text-xs text-gray-500">
+              {(presence[pendingRecipient.id] ?? 'offline') === 'online' ? 'Online' : 'Offline'}
+            </p>
+          </div>
         </div>
         <div className="flex-1" />
         <div className="px-4 py-3 border-t border-gray-800 bg-gray-900 flex items-end gap-2">
