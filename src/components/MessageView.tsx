@@ -4,12 +4,12 @@ import { useEffect, useRef, useState } from 'react';
 import type { ChatDTO, MessageDTO } from '@signalix/contracts';
 import { useChatStore, type TempMessage, type StoredMessage } from '../store/chat.store';
 import { useAuthStore } from '../store/auth.store';
+import { useSidebar } from '../lib/sidebar-context';
+import { Avatar } from './Avatar';
 import { PresenceIndicator } from './PresenceIndicator';
 import { StatusIcon } from './StatusIcon';
 import { MessageInput } from './MessageInput';
 
-// Stable empty fallback — must be module-level so useSyncExternalStore sees the same
-// reference on every call when messages[chatId] is undefined.
 const EMPTY_MESSAGES: StoredMessage[] = [];
 
 interface Props {
@@ -20,26 +20,24 @@ function getOtherParticipant(chat: ChatDTO, currentUserId: string) {
   return chat.participants.find((p) => p.userId !== currentUserId);
 }
 
-interface MessageBubbleProps {
+/* ─── Message bubble ────────────────────────────────────────────────────── */
+
+interface BubbleProps {
   m: MessageDTO | TempMessage;
   index: number;
   currentUserId: string;
   chatId: string;
 }
 
-function MessageBubble({ m, index, currentUserId, chatId }: MessageBubbleProps) {
+function MessageBubble({ m, index, currentUserId, chatId }: BubbleProps) {
   const deleteMessageForMe = useChatStore((s) => s.deleteMessageForMe);
   const [deleting, setDeleting] = useState(false);
 
   const isMine = 'senderId' in m ? m.senderId === currentUserId : true;
-  const key = 'id' in m ? m.id : `tmp-${index}`;
   const text = 'ciphertext' in m ? m.ciphertext : '';
   const time =
     'createdAt' in m
-      ? new Date(m.createdAt).toLocaleTimeString([], {
-          hour: '2-digit',
-          minute: '2-digit',
-        })
+      ? new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       : '';
   const isPending = 'pending' in m && m.pending;
   const state = 'state' in m ? m.state : 'created';
@@ -57,42 +55,41 @@ function MessageBubble({ m, index, currentUserId, chatId }: MessageBubbleProps) 
 
   return (
     <div className={`group flex items-end gap-1.5 ${isMine ? 'justify-end' : 'justify-start'}`}>
-      {/* Delete button — left side for mine, right side for theirs */}
+      {/* Delete — left for received */}
       {!isMine && messageId && (
         <button
           onClick={handleDelete}
           disabled={deleting}
           aria-label="Delete for me"
-          className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-600 hover:text-red-400 disabled:opacity-30 p-0.5 flex-shrink-0"
+          className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 dark:text-zinc-600 hover:text-red-400 dark:hover:text-red-400 disabled:opacity-30 p-1 flex-shrink-0 mb-1"
         >
           <TrashIcon />
         </button>
       )}
 
       <div
-        className={`max-w-xs lg:max-w-md xl:max-w-lg rounded-2xl px-3 py-2 text-sm ${
+        className={`max-w-xs sm:max-w-sm lg:max-w-md xl:max-w-lg rounded-2xl px-3.5 py-2 ${
           isMine
-            ? 'bg-indigo-600 text-white rounded-br-sm'
-            : 'bg-gray-800 text-gray-100 rounded-bl-sm'
+            ? 'bg-indigo-600 text-white rounded-br-md'
+            : 'bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-zinc-100 rounded-bl-md'
         } ${isPending || deleting ? 'opacity-60' : ''}`}
       >
-        <p className="break-words">{text}</p>
-        <div
-          className={`flex items-center gap-1 mt-0.5 ${
-            isMine ? 'justify-end' : 'justify-start'
-          }`}
-        >
-          <span className="text-xs opacity-60">{time}</span>
+        <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">{text}</p>
+        <div className={`flex items-center gap-1 mt-0.5 ${isMine ? 'justify-end' : 'justify-start'}`}>
+          <span className={`text-[11px] ${isMine ? 'text-indigo-200' : 'text-gray-400 dark:text-zinc-500'}`}>
+            {time}
+          </span>
           {isMine && <StatusIcon state={state} />}
         </div>
       </div>
 
+      {/* Delete — right for sent */}
       {isMine && messageId && (
         <button
           onClick={handleDelete}
           disabled={deleting}
           aria-label="Delete for me"
-          className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-600 hover:text-red-400 disabled:opacity-30 p-0.5 flex-shrink-0"
+          className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 dark:text-zinc-600 hover:text-red-400 dark:hover:text-red-400 disabled:opacity-30 p-1 flex-shrink-0 mb-1"
         >
           <TrashIcon />
         </button>
@@ -101,22 +98,7 @@ function MessageBubble({ m, index, currentUserId, chatId }: MessageBubbleProps) 
   );
 }
 
-function TrashIcon() {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 16 16"
-      fill="currentColor"
-      className="w-3.5 h-3.5"
-    >
-      <path
-        fillRule="evenodd"
-        d="M5 3.25V4H2.75a.75.75 0 0 0 0 1.5h.3l.815 8.15A1.5 1.5 0 0 0 5.357 15h5.285a1.5 1.5 0 0 0 1.493-1.35l.815-8.15h.3a.75.75 0 0 0 0-1.5H11v-.75A2.25 2.25 0 0 0 8.75 1h-1.5A2.25 2.25 0 0 0 5 3.25Zm2.25-.75a.75.75 0 0 0-.75.75V4h3v-.75a.75.75 0 0 0-.75-.75h-1.5ZM6.05 6a.75.75 0 0 1 .787.713l.275 5.5a.75.75 0 0 1-1.498.075l-.275-5.5A.75.75 0 0 1 6.05 6Zm3.9 0a.75.75 0 0 1 .712.787l-.275 5.5a.75.75 0 0 1-1.498-.075l.275-5.5A.75.75 0 0 1 9.95 6Z"
-        clipRule="evenodd"
-      />
-    </svg>
-  );
-}
+/* ─── Main view ─────────────────────────────────────────────────────────── */
 
 export function MessageView({ chat }: Props) {
   const session = useAuthStore((s) => s.session);
@@ -125,19 +107,23 @@ export function MessageView({ chat }: Props) {
   const sendMessage = useChatStore((s) => s.sendMessage);
   const loadMessages = useChatStore((s) => s.loadMessages);
   const markRead = useChatStore((s) => s.markRead);
+  const { setOpen } = useSidebar();
+
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
   const currentUserId = session?.userId ?? '';
   const other = getOtherParticipant(chat, currentUserId);
   const otherName = other?.user?.displayName ?? other?.user?.username ?? 'Unknown';
+  const otherUsername = other?.user?.username ?? '';
+  const otherSeed = other?.userId ?? chat.id;
   const isOnline = other ? (presence[other.userId] ?? 'offline') === 'online' : false;
-
-  const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadMessages(chat.id);
   }, [chat.id, loadMessages]);
 
-  // Mark last unread message from others as read
   useEffect(() => {
     const lastUnread = [...messages]
       .reverse()
@@ -145,15 +131,24 @@ export function MessageView({ chat }: Props) {
         (m): m is MessageDTO =>
           'id' in m && m.senderId !== currentUserId && m.state !== 'read',
       );
-    if (lastUnread) {
-      markRead(chat.id, lastUnread.id);
-    }
+    if (lastUnread) markRead(chat.id, lastUnread.id);
   }, [messages, currentUserId, chat.id, markRead]);
 
-  // Scroll to bottom on new messages
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handler(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [menuOpen]);
 
   function handleSend(text: string) {
     sendMessage({ chatId: chat.id, ciphertext: text });
@@ -161,25 +156,89 @@ export function MessageView({ chat }: Props) {
 
   return (
     <div className="flex flex-col h-full">
+
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-800 bg-gray-900 flex-shrink-0">
-        <div className="relative">
-          <div className="w-8 h-8 rounded-full bg-indigo-700 flex items-center justify-center text-xs font-semibold uppercase">
-            {otherName.charAt(0)}
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex-shrink-0">
+        {/* Mobile back button */}
+        <button
+          onClick={() => setOpen(true)}
+          className="md:hidden flex items-center justify-center w-8 h-8 -ml-1 rounded-full text-gray-500 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
+          aria-label="Back to chats"
+        >
+          <BackArrowIcon />
+        </button>
+
+        <Avatar name={otherName} seed={otherSeed} size="sm" />
+
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100 truncate">{otherName}</p>
+          <div className="flex items-center gap-1.5">
+            <PresenceIndicator online={isOnline} size="sm" />
+            <p className={`text-xs font-medium ${isOnline ? 'text-emerald-500' : 'text-gray-400 dark:text-zinc-500'}`}>
+              {isOnline ? 'Online' : 'Offline'}
+            </p>
           </div>
-          <PresenceIndicator
-            online={isOnline}
-            className="absolute -bottom-0.5 -right-0.5 ring-2 ring-gray-900"
-          />
         </div>
-        <div>
-          <p className="text-sm font-medium">{otherName}</p>
-          <p className="text-xs text-gray-500">{isOnline ? 'Online' : 'Offline'}</p>
+
+        {/* ⋮ Menu */}
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            className="w-8 h-8 flex items-center justify-center rounded-full text-gray-500 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
+            aria-label="Chat options"
+          >
+            <DotsVerticalIcon />
+          </button>
+
+          {menuOpen && (
+            <div className="absolute right-0 top-full mt-1.5 w-52 rounded-xl shadow-xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 z-50 overflow-hidden py-1">
+              <button
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-zinc-700/50 transition-colors text-left"
+                onClick={() => { setMenuOpen(false); }}
+              >
+                <UserIcon />
+                <span>View Profile</span>
+              </button>
+              <div className="my-1 border-t border-gray-100 dark:border-zinc-700/50" />
+              <button
+                disabled
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-400 dark:text-zinc-500 cursor-not-allowed text-left"
+                title="Coming soon"
+              >
+                <TrashOutlineIcon />
+                <span>Delete Chat</span>
+                <span className="ml-auto text-[10px] text-gray-300 dark:text-zinc-600">soon</span>
+              </button>
+              <button
+                disabled
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-400 dark:text-zinc-500 cursor-not-allowed text-left"
+                title="Coming soon"
+              >
+                <BlockIcon />
+                <span>Block User</span>
+                <span className="ml-auto text-[10px] text-gray-300 dark:text-zinc-600">soon</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Message list */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-1.5 bg-gray-50 dark:bg-zinc-950">
+        {messages.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-center select-none">
+            <Avatar name={otherName} seed={otherSeed} size="xl" />
+            <div>
+              <p className="text-base font-semibold text-gray-800 dark:text-zinc-200">{otherName}</p>
+              {otherUsername && (
+                <p className="text-sm text-gray-400 dark:text-zinc-500">@{otherUsername}</p>
+              )}
+            </div>
+            <p className="text-sm text-gray-400 dark:text-zinc-500 mt-1">
+              Start the conversation.
+            </p>
+          </div>
+        )}
         {messages.map((m, i) => (
           <MessageBubble
             key={'id' in m ? m.id : `tmp-${i}`}
@@ -194,5 +253,61 @@ export function MessageView({ chat }: Props) {
 
       <MessageInput onSend={handleSend} />
     </div>
+  );
+}
+
+/* ─── Icons ─────────────────────────────────────────────────────────────── */
+
+function BackArrowIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="w-5 h-5 fill-none stroke-current stroke-[1.8]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="12 4 6 10 12 16" />
+    </svg>
+  );
+}
+
+function DotsVerticalIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="w-5 h-5 fill-current" aria-hidden="true">
+      <circle cx="10" cy="4" r="1.5" />
+      <circle cx="10" cy="10" r="1.5" />
+      <circle cx="10" cy="16" r="1.5" />
+    </svg>
+  );
+}
+
+function UserIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="w-4 h-4 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="10" cy="7" r="3.5" />
+      <path d="M2.5 18a7.5 7.5 0 0 1 15 0" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 fill-current" aria-hidden="true">
+      <path fillRule="evenodd" d="M5 3.25V4H2.75a.75.75 0 0 0 0 1.5h.3l.815 8.15A1.5 1.5 0 0 0 5.357 15h5.285a1.5 1.5 0 0 0 1.493-1.35l.815-8.15h.3a.75.75 0 0 0 0-1.5H11v-.75A2.25 2.25 0 0 0 8.75 1h-1.5A2.25 2.25 0 0 0 5 3.25Zm2.25-.75a.75.75 0 0 0-.75.75V4h3v-.75a.75.75 0 0 0-.75-.75h-1.5ZM6.05 6a.75.75 0 0 1 .787.713l.275 5.5a.75.75 0 0 1-1.498.075l-.275-5.5A.75.75 0 0 1 6.05 6Zm3.9 0a.75.75 0 0 1 .712.787l-.275 5.5a.75.75 0 0 1-1.498-.075l.275-5.5A.75.75 0 0 1 9.95 6Z" clipRule="evenodd" />
+    </svg>
+  );
+}
+
+function TrashOutlineIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="w-4 h-4 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 6h12M8 6V4h4v2M16 6l-1 11H5L4 6" />
+      <line x1="8" y1="10" x2="8" y2="14" />
+      <line x1="12" y1="10" x2="12" y2="14" />
+    </svg>
+  );
+}
+
+function BlockIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="w-4 h-4 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="10" cy="10" r="7.5" />
+      <line x1="4.7" y1="4.7" x2="15.3" y2="15.3" />
+    </svg>
   );
 }

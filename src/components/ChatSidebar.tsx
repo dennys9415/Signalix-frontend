@@ -1,30 +1,37 @@
 'use client';
 
-import { useEffect, useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import type { PublicUserDTO } from '@signalix/contracts';
 import { useChatStore } from '../store/chat.store';
 import { useAuthStore } from '../store/auth.store';
 import { getMe, searchUsers } from '../lib/api-client';
+import { getStoredTheme, applyTheme, type Theme } from '../lib/theme';
+import { useSidebar } from '../lib/sidebar-context';
 import { ChatItem } from './ChatItem';
+import { Avatar } from './Avatar';
 import { PresenceIndicator } from './PresenceIndicator';
 
 export function ChatSidebar() {
   const params = useParams();
   const router = useRouter();
+  const { setOpen } = useSidebar();
   const activeChatId = typeof params?.chatId === 'string' ? params.chatId : null;
 
   const session = useAuthStore((s) => s.session);
   const chats = useChatStore((s) => s.chats);
+  const messages = useChatStore((s) => s.messages);
   const presence = useChatStore((s) => s.presence);
   const setPendingRecipient = useChatStore((s) => s.setPendingRecipient);
 
-  const [currentUser, setCurrentUser] = useState<{ displayName?: string; username: string } | null>(null);
+  const [currentUser, setCurrentUser] = useState<{ id: string; displayName?: string; username: string } | null>(null);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<PublicUserDTO[]>([]);
   const [searched, setSearched] = useState(false);
   const [searching, startSearch] = useTransition();
+  const [theme, setTheme] = useState<Theme>('dark');
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const currentUserId = session?.userId ?? '';
 
@@ -33,15 +40,32 @@ export function ChatSidebar() {
     getMe().then(({ user }) => setCurrentUser(user)).catch(() => {});
   }, [session?.userId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function handleSearch(e: React.FormEvent) {
-    e.preventDefault();
-    const q = query.trim();
-    if (!q) return;
+  useEffect(() => {
+    setTheme(getStoredTheme());
+  }, []);
 
+  function cycleTheme() {
+    const next: Theme = theme === 'dark' ? 'light' : theme === 'light' ? 'system' : 'dark';
+    setTheme(next);
+    applyTheme(next);
+  }
+
+  function handleSearchChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const val = e.target.value;
+    setQuery(val);
+    if (!val.trim()) {
+      clearSearch();
+      return;
+    }
     startSearch(async () => {
-      const { users } = await searchUsers(q);
-      setResults(users);
-      setSearched(true);
+      try {
+        const { users } = await searchUsers(val.trim());
+        setResults(users);
+        setSearched(true);
+      } catch {
+        setResults([]);
+        setSearched(true);
+      }
     });
   }
 
@@ -62,115 +86,241 @@ export function ChatSidebar() {
       router.push('/chats');
     }
     clearSearch();
+    setOpen(false);
   }
 
+  function handleChatSelect() {
+    setOpen(false);
+  }
+
+  const isSearching = query.trim().length > 0;
+
   return (
-    <aside className="w-72 flex-shrink-0 flex flex-col bg-gray-900 border-r border-gray-800">
-      {/* Header */}
-      <div className="p-4 flex items-center justify-between border-b border-gray-800">
-        <span className="font-semibold text-indigo-400">Signalix</span>
-        <Link
-          href="/settings/profile"
-          className="text-gray-500 hover:text-gray-300 transition-colors"
-          title="Profile & settings"
+    <aside className="flex flex-col h-full bg-gray-50 dark:bg-zinc-900 border-r border-gray-200 dark:border-zinc-800">
+
+      {/* App header */}
+      <div className="flex items-center justify-between px-4 py-3.5 flex-shrink-0">
+        <span className="text-base font-bold tracking-tight text-indigo-600 dark:text-indigo-400">
+          Signalix
+        </span>
+        <button
+          onClick={cycleTheme}
+          title={`Theme: ${theme}. Click to switch.`}
+          className="w-8 h-8 flex items-center justify-center rounded-full text-gray-500 dark:text-zinc-400 hover:bg-gray-200 dark:hover:bg-zinc-800 transition-colors"
         >
-          <SettingsIcon />
-        </Link>
+          {theme === 'dark' ? <MoonIcon /> : theme === 'light' ? <SunIcon /> : <SystemIcon />}
+        </button>
       </div>
 
       {/* Profile strip */}
       {currentUser && (
         <Link
           href="/settings/profile"
-          className="flex items-center gap-3 px-4 py-3 border-b border-gray-800 hover:bg-gray-800/60 transition-colors"
+          className="flex items-center gap-3 mx-3 mb-2 px-3 py-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-zinc-800/60 transition-colors group"
         >
-          <div className="w-9 h-9 rounded-full bg-indigo-700 flex items-center justify-center text-sm font-bold uppercase flex-shrink-0 select-none">
-            {(currentUser.displayName ?? currentUser.username).charAt(0)}
+          <div className="relative">
+            <Avatar
+              name={currentUser.displayName ?? currentUser.username}
+              seed={currentUser.id}
+              size="md"
+            />
+            <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-gray-50 dark:ring-zinc-900 shadow-sm" />
           </div>
-          <div className="min-w-0">
-            <p className="text-sm font-medium truncate">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold truncate text-gray-900 dark:text-zinc-100">
               {currentUser.displayName ?? currentUser.username}
             </p>
-            <p className="text-xs text-gray-500 truncate">@{currentUser.username}</p>
+            <p className="text-xs text-gray-500 dark:text-zinc-500 truncate">@{currentUser.username}</p>
           </div>
+          <ChevronRightIcon className="w-4 h-4 text-gray-400 dark:text-zinc-600 group-hover:text-gray-500 dark:group-hover:text-zinc-400 flex-shrink-0 transition-colors" />
         </Link>
       )}
 
-      {/* User search */}
-      <form onSubmit={handleSearch} className="p-3 border-b border-gray-800">
-        <div className="flex gap-2">
+      {/* Search */}
+      <div className="px-3 mb-2 flex-shrink-0">
+        <div className="relative">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500 pointer-events-none">
+            <SearchIcon />
+          </span>
           <input
+            ref={searchRef}
             type="text"
             value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              if (!e.target.value.trim()) clearSearch();
-            }}
+            onChange={handleSearchChange}
             placeholder="Search users…"
-            className="flex-1 min-w-0 rounded-md bg-gray-800 border border-gray-700 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="w-full rounded-xl bg-gray-200/70 dark:bg-zinc-800 border-0 pl-9 pr-9 py-2 text-sm text-gray-900 dark:text-zinc-100 placeholder-gray-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-shadow"
           />
-          <button
-            type="submit"
-            disabled={searching || !query.trim()}
-            className="rounded-md bg-indigo-700 hover:bg-indigo-600 disabled:opacity-40 px-3 py-1.5 text-xs font-medium transition-colors"
-          >
-            Go
-          </button>
+          {query && (
+            <button
+              type="button"
+              onClick={clearSearch}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500 hover:text-gray-600 dark:hover:text-zinc-300"
+            >
+              <XSmallIcon />
+            </button>
+          )}
         </div>
+      </div>
 
-        {/* Search results */}
-        {searched && results.length === 0 && (
-          <p className="mt-2 text-xs text-gray-500">No users found.</p>
-        )}
-        {results.length > 0 && (
-          <ul className="mt-2 space-y-0.5">
-            {results.map((user) => (
-              <li key={user.id}>
-                <button
-                  type="button"
-                  onClick={() => startNewChat(user)}
-                  className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm bg-gray-800 hover:bg-gray-700 transition-colors text-left"
-                >
-                  <div className="w-7 h-7 rounded-full bg-indigo-700 flex items-center justify-center text-xs font-semibold uppercase flex-shrink-0">
-                    {(user.displayName ?? user.username).charAt(0)}
-                  </div>
-                  <span className="truncate">{user.displayName ?? user.username}</span>
-                  <span className="ml-1 text-xs text-gray-500 truncate">@{user.username}</span>
-                  <PresenceIndicator
-                    online={(presence[user.id] ?? 'offline') === 'online'}
-                    className="ml-auto flex-shrink-0"
-                  />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </form>
+      {/* Search results */}
+      {isSearching && (
+        <div className="flex-1 overflow-y-auto px-3 space-y-0.5">
+          {searching && (
+            <p className="text-xs text-gray-400 dark:text-zinc-500 px-2 py-2">Searching…</p>
+          )}
+          {!searching && searched && results.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-12 gap-2 text-center">
+              <NoResultsIcon />
+              <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">No users found</p>
+              <p className="text-xs text-gray-400 dark:text-zinc-500">Try a different username</p>
+            </div>
+          )}
+          {results.map((user) => {
+            const name = user.displayName ?? user.username;
+            const isOnline = (presence[user.id] ?? 'offline') === 'online';
+            return (
+              <button
+                key={user.id}
+                type="button"
+                onClick={() => startNewChat(user)}
+                className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-gray-100 dark:hover:bg-zinc-800/60 transition-colors text-left"
+              >
+                <div className="relative flex-shrink-0">
+                  <Avatar name={name} seed={user.id} size="md" />
+                  {isOnline && (
+                    <PresenceIndicator
+                      online
+                      className="absolute -bottom-0.5 -right-0.5 ring-2 ring-gray-50 dark:ring-zinc-900"
+                    />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold truncate text-gray-900 dark:text-zinc-100">{name}</p>
+                  <p className="text-xs text-gray-500 dark:text-zinc-500 truncate">@{user.username}</p>
+                </div>
+                {isOnline && (
+                  <span className="text-[10px] font-medium text-emerald-500 flex-shrink-0">Online</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Chat list */}
-      <nav className="flex-1 overflow-y-auto p-2 space-y-0.5">
-        {chats.map((chat) => (
-          <ChatItem
-            key={chat.id}
-            chat={chat}
-            currentUserId={currentUserId}
-            presence={presence}
-            active={chat.id === activeChatId}
-          />
-        ))}
-        {chats.length === 0 && (
-          <p className="text-xs text-gray-600 px-4 py-3">No conversations yet.</p>
-        )}
-      </nav>
+      {!isSearching && (
+        <nav className="flex-1 overflow-y-auto px-3 space-y-0.5 pb-2">
+          {chats.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-4 py-16">
+              <EmptyChatIcon />
+              <div>
+                <p className="text-sm font-semibold text-gray-700 dark:text-zinc-300">Welcome to Signalix</p>
+                <p className="text-xs text-gray-400 dark:text-zinc-500 mt-1">
+                  Start a conversation by searching for a username above.
+                </p>
+              </div>
+            </div>
+          ) : (
+            chats.map((chat) => {
+              const chatMsgs = messages[chat.id];
+              const lastMessage = chatMsgs ? chatMsgs[chatMsgs.length - 1] : undefined;
+              return (
+                <div key={chat.id} onClick={handleChatSelect}>
+                  <ChatItem
+                    chat={chat}
+                    currentUserId={currentUserId}
+                    presence={presence}
+                    active={chat.id === activeChatId}
+                    lastMessage={lastMessage}
+                  />
+                </div>
+              );
+            })
+          )}
+        </nav>
+      )}
     </aside>
   );
 }
 
-function SettingsIcon() {
+/* ─── Icons ─────────────────────────────────────────────────────────────── */
+
+function SearchIcon() {
   return (
-    <svg viewBox="0 0 24 24" className="w-4 h-4 fill-none stroke-current stroke-2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    <svg viewBox="0 0 20 20" className="w-4 h-4 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="9" cy="9" r="6" />
+      <line x1="13.5" y1="13.5" x2="18" y2="18" />
+    </svg>
+  );
+}
+
+function XSmallIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 fill-none stroke-current stroke-2" strokeLinecap="round" aria-hidden="true">
+      <line x1="4" y1="4" x2="12" y2="12" />
+      <line x1="12" y1="4" x2="4" y2="12" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" className={`fill-none stroke-current stroke-2 ${className}`} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="6 4 10 8 6 12" />
+    </svg>
+  );
+}
+
+function SunIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="w-4 h-4 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="10" cy="10" r="3.5" />
+      <line x1="10" y1="2" x2="10" y2="3.5" />
+      <line x1="10" y1="16.5" x2="10" y2="18" />
+      <line x1="2" y1="10" x2="3.5" y2="10" />
+      <line x1="16.5" y1="10" x2="18" y2="10" />
+      <line x1="4.4" y1="4.4" x2="5.5" y2="5.5" />
+      <line x1="14.5" y1="14.5" x2="15.6" y2="15.6" />
+      <line x1="15.6" y1="4.4" x2="14.5" y2="5.5" />
+      <line x1="5.5" y1="14.5" x2="4.4" y2="15.6" />
+    </svg>
+  );
+}
+
+function MoonIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="w-4 h-4 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M17 13.5A7.5 7.5 0 1 1 6.5 3a5.5 5.5 0 0 0 10.5 10.5z" />
+    </svg>
+  );
+}
+
+function SystemIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="w-4 h-4 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="2" y="3" width="16" height="11" rx="2" />
+      <line x1="7" y1="17" x2="13" y2="17" />
+      <line x1="10" y1="14" x2="10" y2="17" />
+    </svg>
+  );
+}
+
+function EmptyChatIcon() {
+  return (
+    <svg viewBox="0 0 48 48" className="w-12 h-12 text-gray-300 dark:text-zinc-700 fill-none stroke-current stroke-[1.5]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M8 12a4 4 0 0 1 4-4h24a4 4 0 0 1 4 4v20a4 4 0 0 1-4 4H16l-8 6V12z" />
+      <line x1="16" y1="20" x2="32" y2="20" />
+      <line x1="16" y1="27" x2="26" y2="27" />
+    </svg>
+  );
+}
+
+function NoResultsIcon() {
+  return (
+    <svg viewBox="0 0 48 48" className="w-10 h-10 text-gray-300 dark:text-zinc-700 fill-none stroke-current stroke-[1.5]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="22" cy="22" r="14" />
+      <line x1="32" y1="32" x2="44" y2="44" />
+      <line x1="17" y1="22" x2="27" y2="22" />
     </svg>
   );
 }

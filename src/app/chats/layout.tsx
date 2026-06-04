@@ -4,34 +4,29 @@ import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '../../store/auth.store';
 import { useChatStore } from '../../store/chat.store';
+import { SidebarProvider, useSidebar } from '../../lib/sidebar-context';
 import { ChatSidebar } from '../../components/ChatSidebar';
 
-export default function ChatsLayout({ children }: { children: React.ReactNode }) {
+function ChatsShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const session = useAuthStore((s) => s.session);
   const hydrated = useAuthStore((s) => s.hydrated);
   const hydrate = useAuthStore((s) => s.hydrate);
   const loadChats = useChatStore((s) => s.loadChats);
   const initWsHandler = useChatStore((s) => s.initWsHandler);
+  const { open } = useSidebar();
 
-  // Tracks which userId has been initialized so init runs once per authenticated session,
-  // not on every navigation (router reference changes in Next.js 15 App Router after push/replace).
   const initializedForUser = useRef<string | null>(null);
 
-  // Handles the case where the user navigates directly to /chats without going through root.
   useEffect(() => {
     hydrate();
   }, [hydrate]);
 
-  // Auth guard — separate from init so router changes don't re-trigger initWsHandler/loadChats.
   useEffect(() => {
     if (!hydrated) return;
-    if (!session) {
-      router.replace('/login');
-    }
+    if (!session) router.replace('/login');
   }, [hydrated, session, router]);
 
-  // One-time init per authenticated user identity.
   useEffect(() => {
     if (!hydrated || !session) return;
     if (initializedForUser.current === session.userId) return;
@@ -40,15 +35,35 @@ export default function ChatsLayout({ children }: { children: React.ReactNode })
     loadChats();
   }, [hydrated, session, initWsHandler, loadChats]);
 
-  // Hold render until hydration is complete to prevent a flash of the login redirect.
   if (!hydrated || !session) return null;
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <ChatSidebar />
-      <main className="flex-1 flex flex-col overflow-hidden bg-gray-950">
+    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-zinc-950">
+      {/* Sidebar: full-width on mobile when open, fixed-width on desktop */}
+      <div
+        className={`${
+          open ? 'flex' : 'hidden'
+        } md:flex flex-col w-full md:w-72 flex-shrink-0`}
+      >
+        <ChatSidebar />
+      </div>
+
+      {/* Main: hidden on mobile when sidebar is open */}
+      <main
+        className={`${
+          open ? 'hidden' : 'flex'
+        } md:flex flex-1 flex-col overflow-hidden`}
+      >
         {children}
       </main>
     </div>
+  );
+}
+
+export default function ChatsLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <SidebarProvider>
+      <ChatsShell>{children}</ChatsShell>
+    </SidebarProvider>
   );
 }
