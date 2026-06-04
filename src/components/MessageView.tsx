@@ -37,10 +37,9 @@ function MessageBubble({ m, index, currentUserId, chatId }: BubbleProps) {
 
   const isMine = 'senderId' in m ? m.senderId === currentUserId : true;
   const text = 'ciphertext' in m ? m.ciphertext : '';
-  const time =
-    'createdAt' in m
-      ? new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      : '';
+  const time = 'createdAt' in m
+    ? new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : '';
   const isPending = 'pending' in m && m.pending;
   const state = 'state' in m ? m.state : 'created';
   const messageId = 'id' in m ? m.id : null;
@@ -63,25 +62,25 @@ function MessageBubble({ m, index, currentUserId, chatId }: BubbleProps) {
           onClick={handleDelete}
           disabled={deleting}
           aria-label="Delete for me"
-          className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 dark:text-zinc-600 hover:text-red-400 dark:hover:text-red-400 disabled:opacity-30 p-1 flex-shrink-0 mb-1"
+          className="opacity-0 group-hover:opacity-100 transition-opacity text-[#c7c7cc] dark:text-[#48484a] hover:text-red-400 dark:hover:text-red-400 disabled:opacity-30 p-1 flex-shrink-0 mb-1"
         >
           <TrashIcon />
         </button>
       )}
 
       <div
-        className={`max-w-xs sm:max-w-sm lg:max-w-md xl:max-w-lg rounded-2xl px-3.5 py-2 ${
+        className={`max-w-[72%] sm:max-w-sm lg:max-w-md rounded-[18px] px-3.5 py-2.5 ${
           isMine
-            ? 'bg-indigo-600 text-white rounded-br-md'
-            : 'bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-zinc-100 rounded-bl-md'
+            ? 'bg-[#007aff] dark:bg-[#0a84ff] text-white rounded-br-[4px]'
+            : 'bg-[#e9e9eb] dark:bg-[#3a3a3c] text-[#1c1c1e] dark:text-[#f5f5f7] rounded-bl-[4px]'
         } ${isPending || deleting ? 'opacity-60' : ''}`}
       >
-        <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">{text}</p>
+        <p className="text-[15px] leading-relaxed break-words whitespace-pre-wrap">{text}</p>
         <div className={`flex items-center gap-1 mt-0.5 ${isMine ? 'justify-end' : 'justify-start'}`}>
-          <span className={`text-[11px] ${isMine ? 'text-indigo-200' : 'text-gray-400 dark:text-zinc-500'}`}>
+          <span className={`text-[11px] ${isMine ? 'text-white/60' : 'text-[#8e8e93]'}`}>
             {time}
           </span>
-          {isMine && <StatusIcon state={state} />}
+          {isMine && <StatusIcon state={state} light />}
         </div>
       </div>
 
@@ -91,7 +90,7 @@ function MessageBubble({ m, index, currentUserId, chatId }: BubbleProps) {
           onClick={handleDelete}
           disabled={deleting}
           aria-label="Delete for me"
-          className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 dark:text-zinc-600 hover:text-red-400 dark:hover:text-red-400 disabled:opacity-30 p-1 flex-shrink-0 mb-1"
+          className="opacity-0 group-hover:opacity-100 transition-opacity text-[#c7c7cc] dark:text-[#48484a] hover:text-red-400 dark:hover:text-red-400 disabled:opacity-30 p-1 flex-shrink-0 mb-1"
         >
           <TrashIcon />
         </button>
@@ -109,9 +108,9 @@ export function MessageView({ chat }: Props) {
   const sendMessage = useChatStore((s) => s.sendMessage);
   const loadMessages = useChatStore((s) => s.loadMessages);
   const markRead = useChatStore((s) => s.markRead);
-  const router = useRouter();
   const { setOpen } = useSidebar();
 
+  const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -127,7 +126,6 @@ export function MessageView({ chat }: Props) {
   const otherSeed = other?.userId ?? chat.id;
   const isOnline = other ? (presence[other.userId] ?? 'offline') === 'online' : false;
 
-  // Register this chat as active; clear any unread count; deregister on unmount.
   useEffect(() => {
     setActiveChatId(chat.id);
     clearUnread(chat.id);
@@ -141,10 +139,7 @@ export function MessageView({ chat }: Props) {
   useEffect(() => {
     const lastUnread = [...messages]
       .reverse()
-      .find(
-        (m): m is MessageDTO =>
-          'id' in m && m.senderId !== currentUserId && m.state !== 'read',
-      );
+      .find((m): m is MessageDTO => 'id' in m && m.senderId !== currentUserId && m.state !== 'read');
     if (lastUnread) markRead(chat.id, lastUnread.id);
   }, [messages, currentUserId, chat.id, markRead]);
 
@@ -152,13 +147,10 @@ export function MessageView({ chat }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
 
-  // Close menu on outside click
   useEffect(() => {
     if (!menuOpen) return;
     function handler(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
     }
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -172,11 +164,11 @@ export function MessageView({ chat }: Props) {
     <div className="flex flex-col h-full">
 
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex-shrink-0">
-        {/* Mobile back button */}
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200/80 dark:border-[#38383a] bg-white dark:bg-[#1c1c1e] flex-shrink-0">
+        {/* Mobile back */}
         <button
           onClick={() => { setOpen(true); router.push('/chats'); }}
-          className="md:hidden flex items-center justify-center w-8 h-8 -ml-1 rounded-full text-gray-500 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
+          className="md:hidden flex items-center justify-center w-8 h-8 -ml-1 rounded-full text-[#007aff] dark:text-[#0a84ff] hover:bg-[#007aff]/[0.08] dark:hover:bg-[#0a84ff]/[0.1] transition-colors"
           aria-label="Back to chats"
         >
           <BackArrowIcon />
@@ -185,10 +177,10 @@ export function MessageView({ chat }: Props) {
         <Avatar name={otherName} seed={otherSeed} size="sm" />
 
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100 truncate">{otherName}</p>
+          <p className="text-[15px] font-semibold text-[#1c1c1e] dark:text-[#f5f5f7] truncate">{otherName}</p>
           <div className="flex items-center gap-1.5">
             <PresenceIndicator online={isOnline} size="sm" />
-            <p className={`text-xs font-medium ${isOnline ? 'text-emerald-500' : 'text-gray-400 dark:text-zinc-500'}`}>
+            <p className={`text-[12px] font-medium ${isOnline ? 'text-emerald-500' : 'text-[#8e8e93]'}`}>
               {isOnline ? 'Online' : 'Offline'}
             </p>
           </div>
@@ -198,39 +190,39 @@ export function MessageView({ chat }: Props) {
         <div className="relative" ref={menuRef}>
           <button
             onClick={() => setMenuOpen((v) => !v)}
-            className="w-8 h-8 flex items-center justify-center rounded-full text-gray-500 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-full text-[#8e8e93] hover:bg-black/[0.06] dark:hover:bg-white/[0.08] transition-colors"
             aria-label="Chat options"
           >
             <DotsVerticalIcon />
           </button>
 
           {menuOpen && (
-            <div className="absolute right-0 top-full mt-1.5 w-52 rounded-xl shadow-xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 z-50 overflow-hidden py-1">
+            <div className="absolute right-0 top-full mt-1.5 w-52 rounded-2xl shadow-xl bg-white dark:bg-[#2c2c2e] border border-gray-100 dark:border-[#48484a] z-50 overflow-hidden py-1">
               <button
-                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-zinc-700/50 transition-colors text-left"
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-[14px] text-[#1c1c1e] dark:text-[#f5f5f7] hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors text-left"
                 onClick={() => { setMenuOpen(false); setProfileOpen(true); }}
               >
                 <UserIcon />
                 <span>View Profile</span>
               </button>
-              <div className="my-1 border-t border-gray-100 dark:border-zinc-700/50" />
+              <div className="my-1 border-t border-gray-100 dark:border-[#48484a]" />
               <button
                 disabled
-                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-400 dark:text-zinc-500 cursor-not-allowed text-left"
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-[14px] text-[#c7c7cc] dark:text-[#636366] cursor-not-allowed text-left"
                 title="Coming soon"
               >
                 <TrashOutlineIcon />
                 <span>Delete Chat</span>
-                <span className="ml-auto text-[10px] text-gray-300 dark:text-zinc-600">soon</span>
+                <span className="ml-auto text-[10px] text-[#c7c7cc] dark:text-[#48484a]">soon</span>
               </button>
               <button
                 disabled
-                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-400 dark:text-zinc-500 cursor-not-allowed text-left"
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-[14px] text-[#c7c7cc] dark:text-[#636366] cursor-not-allowed text-left"
                 title="Coming soon"
               >
                 <BlockIcon />
                 <span>Block User</span>
-                <span className="ml-auto text-[10px] text-gray-300 dark:text-zinc-600">soon</span>
+                <span className="ml-auto text-[10px] text-[#c7c7cc] dark:text-[#48484a]">soon</span>
               </button>
             </div>
           )}
@@ -238,19 +230,17 @@ export function MessageView({ chat }: Props) {
       </div>
 
       {/* Message list */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-1.5 bg-gray-50 dark:bg-zinc-950">
+      <div className="flex-1 overflow-y-auto px-4 py-5 space-y-1.5 bg-[#f5f5f7] dark:bg-black">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center select-none">
             <Avatar name={otherName} seed={otherSeed} size="xl" />
             <div>
-              <p className="text-base font-semibold text-gray-800 dark:text-zinc-200">{otherName}</p>
+              <p className="text-[16px] font-semibold text-[#1c1c1e] dark:text-[#f5f5f7]">{otherName}</p>
               {otherUsername && (
-                <p className="text-sm text-gray-400 dark:text-zinc-500">@{otherUsername}</p>
+                <p className="text-[13px] text-[#8e8e93] mt-0.5">@{otherUsername}</p>
               )}
             </div>
-            <p className="text-sm text-gray-400 dark:text-zinc-500 mt-1">
-              Start the conversation.
-            </p>
+            <p className="text-[13px] text-[#8e8e93] mt-1">Start the conversation.</p>
           </div>
         )}
         {messages.map((m, i) => (
@@ -284,7 +274,7 @@ export function MessageView({ chat }: Props) {
 
 function BackArrowIcon() {
   return (
-    <svg viewBox="0 0 20 20" className="w-5 h-5 fill-none stroke-current stroke-[1.8]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 20 20" className="w-5 h-5 fill-none stroke-current stroke-[2]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <polyline points="12 4 6 10 12 16" />
     </svg>
   );

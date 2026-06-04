@@ -38,20 +38,20 @@ export default function ChatsIndexPage() {
     return (
       <div className="flex flex-col h-full">
         {/* Header */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex-shrink-0">
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200/80 dark:border-[#38383a] bg-white dark:bg-[#1c1c1e] flex-shrink-0">
           <button
             onClick={() => setOpen(true)}
-            className="md:hidden flex items-center justify-center w-8 h-8 -ml-1 rounded-full text-gray-500 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
+            className="md:hidden flex items-center justify-center w-8 h-8 -ml-1 rounded-full text-[#007aff] dark:text-[#0a84ff] hover:bg-[#007aff]/[0.08] transition-colors"
             aria-label="Back to chats"
           >
             <BackArrowIcon />
           </button>
           <Avatar name={name} seed={pendingRecipient.id} size="sm" />
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100 truncate">{name}</p>
+            <p className="text-[15px] font-semibold text-[#1c1c1e] dark:text-[#f5f5f7] truncate">{name}</p>
             <div className="flex items-center gap-1.5">
               <PresenceIndicator online={isOnline} size="sm" />
-              <p className={`text-xs font-medium ${isOnline ? 'text-emerald-500' : 'text-gray-400 dark:text-zinc-500'}`}>
+              <p className={`text-[12px] font-medium ${isOnline ? 'text-emerald-500' : 'text-[#8e8e93]'}`}>
                 {isOnline ? 'Online' : 'Offline'}
               </p>
             </div>
@@ -59,17 +59,15 @@ export default function ChatsIndexPage() {
         </div>
 
         {/* Empty area */}
-        <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center px-8 bg-gray-50 dark:bg-zinc-950 select-none">
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center px-8 bg-[#f5f5f7] dark:bg-black select-none">
           <Avatar name={name} seed={pendingRecipient.id} size="xl" />
           <div>
-            <p className="text-base font-semibold text-gray-800 dark:text-zinc-200">{name}</p>
+            <p className="text-[16px] font-semibold text-[#1c1c1e] dark:text-[#f5f5f7]">{name}</p>
             {pendingRecipient.username && (
-              <p className="text-sm text-gray-400 dark:text-zinc-500">@{pendingRecipient.username}</p>
+              <p className="text-[13px] text-[#8e8e93] mt-0.5">@{pendingRecipient.username}</p>
             )}
           </div>
-          <p className="text-sm text-gray-400 dark:text-zinc-500">
-            Start the conversation.
-          </p>
+          <p className="text-[13px] text-[#8e8e93] mt-1">Start the conversation.</p>
         </div>
 
         <MessageInput onSend={handleSend} />
@@ -78,12 +76,12 @@ export default function ChatsIndexPage() {
   }
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-8 select-none bg-gray-50 dark:bg-zinc-950">
+    <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-8 select-none bg-[#f5f5f7] dark:bg-black">
       <EmptyStateIcon />
       <div>
-        <p className="text-lg font-semibold text-gray-700 dark:text-zinc-300">Welcome to Signalix</p>
-        <p className="text-sm text-gray-400 dark:text-zinc-500 mt-1">
-          Start a conversation by searching for a username.
+        <p className="text-[17px] font-semibold text-[#1c1c1e] dark:text-[#f5f5f7]">Messages</p>
+        <p className="text-[13px] text-[#8e8e93] mt-1">
+          Select a conversation or search for someone to get started.
         </p>
       </div>
     </div>
@@ -92,7 +90,7 @@ export default function ChatsIndexPage() {
 
 function BackArrowIcon() {
   return (
-    <svg viewBox="0 0 20 20" className="w-5 h-5 fill-none stroke-current stroke-[1.8]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 20 20" className="w-5 h-5 fill-none stroke-current stroke-[2]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <polyline points="12 4 6 10 12 16" />
     </svg>
   );
@@ -100,7 +98,7 @@ function BackArrowIcon() {
 
 function EmptyStateIcon() {
   return (
-    <svg viewBox="0 0 64 64" className="w-16 h-16 text-gray-200 dark:text-zinc-800 fill-none stroke-current stroke-[1.5]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 64 64" className="w-16 h-16 text-[#c7c7cc] dark:text-[#3a3a3c] fill-none stroke-current stroke-[1.5]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M10 16a6 6 0 0 1 6-6h32a6 6 0 0 1 6 6v26a6 6 0 0 1-6 6H20l-10 8V16z" />
       <line x1="22" y1="27" x2="42" y2="27" />
       <line x1="22" y1="35" x2="34" y2="35" />

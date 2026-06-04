@@ -18,14 +18,7 @@ function getOtherParticipant(chat: ChatDTO, currentUserId: string) {
   return chat.participants.find((p) => p.userId !== currentUserId);
 }
 
-export function ChatItem({
-  chat,
-  currentUserId,
-  presence,
-  active,
-  lastMessage,
-  unreadCount,
-}: Props) {
+export function ChatItem({ chat, currentUserId, presence, active, lastMessage, unreadCount }: Props) {
   const other = getOtherParticipant(chat, currentUserId);
   const name = other?.user?.displayName ?? other?.user?.username ?? 'Unknown';
   const username = other?.user?.username ?? '';
@@ -34,26 +27,22 @@ export function ChatItem({
   const hasUnread = unreadCount > 0;
 
   const preview = lastMessage
-    ? 'ciphertext' in lastMessage
-      ? lastMessage.ciphertext
-      : '…'
+    ? 'ciphertext' in lastMessage ? lastMessage.ciphertext : '…'
     : null;
 
   const timestamp = lastMessage
-    ? 'createdAt' in lastMessage
-      ? formatChatTime(lastMessage.createdAt)
-      : null
+    ? 'createdAt' in lastMessage ? formatChatTime(lastMessage.createdAt) : null
     : formatChatTime(chat.createdAt);
 
   return (
     <Link
       href={`/chats/${chat.id}`}
-      className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors ${
+      className={`flex items-center gap-3 px-3 py-2.5 rounded-2xl transition-all duration-150 ${
         active
-          ? 'bg-indigo-600/15 dark:bg-indigo-500/20'
+          ? 'bg-[#007aff]/[0.08] dark:bg-[#0a84ff]/[0.1]'
           : hasUnread
-          ? 'bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100/80 dark:hover:bg-indigo-950/60'
-          : 'hover:bg-gray-100 dark:hover:bg-zinc-800/60'
+          ? 'bg-[#007aff]/[0.04] dark:bg-[#0a84ff]/[0.06] hover:bg-[#007aff]/[0.07] dark:hover:bg-[#0a84ff]/[0.1]'
+          : 'hover:bg-black/[0.04] dark:hover:bg-white/[0.05]'
       }`}
     >
       {/* Avatar with presence dot */}
@@ -62,52 +51,46 @@ export function ChatItem({
         {isOnline && (
           <PresenceIndicator
             online
-            className="absolute -bottom-0.5 -right-0.5 ring-2 ring-gray-50 dark:ring-zinc-900"
+            className="absolute -bottom-0.5 -right-0.5 ring-2 ring-white dark:ring-[#1c1c1e]"
           />
         )}
       </div>
 
       {/* Content */}
       <div className="min-w-0 flex-1">
-        {/* Row 1: name + timestamp */}
+        {/* Name + timestamp */}
         <div className="flex items-baseline justify-between gap-1">
-          <p
-            className={`truncate text-sm ${
-              active
-                ? 'font-semibold text-indigo-600 dark:text-indigo-400'
-                : hasUnread
-                ? 'font-bold text-gray-900 dark:text-zinc-50'
-                : 'font-semibold text-gray-900 dark:text-zinc-100'
-            }`}
-          >
+          <p className={`truncate text-[15px] leading-snug ${
+            active
+              ? 'font-semibold text-[#007aff] dark:text-[#0a84ff]'
+              : hasUnread
+              ? 'font-semibold text-[#1c1c1e] dark:text-[#f5f5f7]'
+              : 'font-medium text-[#1c1c1e] dark:text-[#f5f5f7]'
+          }`}>
             {name}
           </p>
           {timestamp && (
-            <span
-              className={`text-[10px] flex-shrink-0 ${
-                hasUnread
-                  ? 'text-indigo-500 dark:text-indigo-400 font-medium'
-                  : 'text-gray-400 dark:text-zinc-500'
-              }`}
-            >
+            <span className={`text-[11px] flex-shrink-0 ${
+              hasUnread
+                ? 'text-[#007aff] dark:text-[#0a84ff] font-medium'
+                : 'text-[#8e8e93]'
+            }`}>
               {timestamp}
             </span>
           )}
         </div>
 
-        {/* Row 2: preview + unread badge */}
+        {/* Preview + unread badge */}
         <div className="flex items-center justify-between gap-1 mt-0.5">
-          <p
-            className={`truncate text-xs ${
-              hasUnread
-                ? 'text-gray-700 dark:text-zinc-200 font-medium'
-                : 'text-gray-500 dark:text-zinc-500'
-            }`}
-          >
+          <p className={`truncate text-[13px] leading-snug ${
+            hasUnread
+              ? 'text-[#1c1c1e] dark:text-[#ebebf5] font-medium'
+              : 'text-[#8e8e93]'
+          }`}>
             {preview ?? `@${username}`}
           </p>
           {hasUnread && (
-            <span className="flex-shrink-0 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-indigo-600 dark:bg-indigo-500 text-[10px] font-bold text-white px-1 leading-none">
+            <span className="flex-shrink-0 min-w-[20px] h-5 flex items-center justify-center rounded-full bg-[#007aff] dark:bg-[#0a84ff] text-[11px] font-semibold text-white px-1.5 leading-none">
               {unreadCount > 99 ? '99+' : unreadCount}
             </span>
           )}

@@ -23,45 +23,43 @@ export function ContactProfileModal({ userId, displayName, username, isOnline, o
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-xs rounded-2xl bg-white dark:bg-zinc-900 shadow-2xl border border-gray-200 dark:border-zinc-800 overflow-hidden"
+        className="relative w-full max-w-[300px] rounded-3xl bg-white dark:bg-[#2c2c2e] shadow-2xl border border-gray-100/80 dark:border-[#48484a] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close button */}
         <button
           onClick={onClose}
           aria-label="Close"
-          className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-full text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors z-10"
+          className="absolute top-3.5 right-3.5 w-7 h-7 flex items-center justify-center rounded-full bg-[#f2f2f7] dark:bg-[#3a3a3c] text-[#8e8e93] hover:text-[#636366] dark:hover:text-[#aeaeb2] transition-colors z-10"
         >
           <CloseIcon />
         </button>
 
         {/* Avatar hero */}
-        <div className="flex flex-col items-center pt-10 pb-6 px-6 bg-gradient-to-b from-indigo-50 dark:from-indigo-950/30 to-transparent">
+        <div className="flex flex-col items-center pt-10 pb-5 px-6 bg-gradient-to-b from-[#f2f2f7] dark:from-[#3a3a3c]/40 to-transparent">
           <div className="relative">
             <Avatar name={displayName} seed={userId} size="xl" />
-            <span
-              className={`absolute -bottom-0.5 -right-0.5 ring-2 ring-white dark:ring-zinc-900`}
-            >
+            <span className="absolute -bottom-0.5 -right-0.5 ring-2 ring-white dark:ring-[#2c2c2e]">
               <PresenceIndicator online={isOnline} />
             </span>
           </div>
         </div>
 
         {/* Info */}
-        <div className="px-6 pb-8 text-center space-y-1">
-          <p className="text-lg font-bold text-gray-900 dark:text-zinc-100 truncate">{displayName}</p>
-          <p className="text-sm text-gray-500 dark:text-zinc-400 truncate">@{username}</p>
-          <div className="flex items-center justify-center gap-1.5 pt-0.5">
+        <div className="px-6 pb-8 text-center">
+          <p className="text-[18px] font-bold text-[#1c1c1e] dark:text-[#f5f5f7] truncate">{displayName}</p>
+          <p className="text-[13px] text-[#8e8e93] truncate mt-0.5">@{username}</p>
+          <div className="flex items-center justify-center gap-1.5 mt-2">
             <PresenceIndicator online={isOnline} size="sm" />
-            <span className={`text-xs font-medium ${isOnline ? 'text-emerald-500' : 'text-gray-400 dark:text-zinc-500'}`}>
+            <span className={`text-[12px] font-medium ${isOnline ? 'text-emerald-500' : 'text-[#8e8e93]'}`}>
               {isOnline ? 'Online' : 'Offline'}
             </span>
           </div>
-          <p className="text-[10px] text-gray-300 dark:text-zinc-700 pt-2 font-mono select-all">{userId}</p>
+          <p className="text-[10px] text-[#c7c7cc] dark:text-[#636366] mt-3 font-mono select-all leading-relaxed break-all">{userId}</p>
         </div>
       </div>
     </div>
@@ -70,7 +68,7 @@ export function ContactProfileModal({ userId, displayName, username, isOnline, o
 
 function CloseIcon() {
   return (
-    <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 fill-none stroke-current stroke-2" strokeLinecap="round" aria-hidden="true">
+    <svg viewBox="0 0 16 16" className="w-3 h-3 fill-none stroke-current stroke-[2.5]" strokeLinecap="round" aria-hidden="true">
       <line x1="4" y1="4" x2="12" y2="12" />
       <line x1="12" y1="4" x2="4" y2="12" />
     </svg>

@@ -9,7 +9,11 @@
 
   * {
     scrollbar-width: thin;
-    scrollbar-color: #3f3f46 transparent;
+    scrollbar-color: #c7c7cc transparent;
+  }
+
+  .dark * {
+    scrollbar-color: #3a3a3c transparent;
   }
 
   *::-webkit-scrollbar {
@@ -22,12 +26,11 @@
   }
 
   *::-webkit-scrollbar-thumb {
-    background-color: #3f3f46;
+    background-color: #c7c7cc;
     border-radius: 9999px;
   }
 
-  .light *::-webkit-scrollbar-thumb,
-  :root:not(.dark) *::-webkit-scrollbar-thumb {
-    background-color: #d1d5db;
+  .dark *::-webkit-scrollbar-thumb {
+    background-color: #3a3a3c;
   }
 }

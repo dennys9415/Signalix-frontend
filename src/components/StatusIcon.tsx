@@ -2,36 +2,24 @@ import { MessageLifecycleState } from '@signalix/contracts';
 
 interface Props {
   state: string;
+  light?: boolean; // true when rendered inside a colored (blue) bubble
 }
 
-export function StatusIcon({ state }: Props) {
+export function StatusIcon({ state, light = false }: Props) {
+  const c = light
+    ? { read: 'text-white', tick: 'text-white/70', clock: 'text-white/50' }
+    : { read: 'text-[#007aff] dark:text-[#0a84ff]', tick: 'text-gray-400 dark:text-[#636366]', clock: 'text-gray-300 dark:text-[#48484a]' };
+
   if (state === MessageLifecycleState.READ) {
-    return (
-      <span title="Read" className="inline-flex text-indigo-400">
-        <DoubleCheckIcon />
-      </span>
-    );
+    return <span title="Read" className={`inline-flex ${c.read}`}><DoubleCheckIcon /></span>;
   }
   if (state === MessageLifecycleState.DELIVERED) {
-    return (
-      <span title="Delivered" className="inline-flex text-zinc-400">
-        <DoubleCheckIcon />
-      </span>
-    );
+    return <span title="Delivered" className={`inline-flex ${c.tick}`}><DoubleCheckIcon /></span>;
   }
   if (state === MessageLifecycleState.SENT) {
-    return (
-      <span title="Sent" className="inline-flex text-zinc-400">
-        <SingleCheckIcon />
-      </span>
-    );
+    return <span title="Sent" className={`inline-flex ${c.tick}`}><SingleCheckIcon /></span>;
   }
-  // CREATED / pending
-  return (
-    <span title="Sending" className="inline-flex text-zinc-600">
-      <ClockIcon />
-    </span>
-  );
+  return <span title="Sending" className={`inline-flex ${c.clock}`}><ClockIcon /></span>;
 }
 
 function SingleCheckIcon() {

@@ -15,7 +15,7 @@ export default function ChatPage({ params }: Props) {
 
   if (!chat) {
     return (
-      <div className="flex-1 flex items-center justify-center text-gray-600 text-sm">
+      <div className="flex-1 flex items-center justify-center text-[13px] text-[#8e8e93]">
         Loading…
       </div>
     );

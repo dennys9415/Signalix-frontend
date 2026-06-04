@@ -50,10 +50,10 @@ export default function ProfilePage() {
 
   if (!hydrated || !session || !profile) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-zinc-950">
+      <div className="min-h-screen flex items-center justify-center bg-[#f5f5f7] dark:bg-black">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
-          <p className="text-sm text-gray-500 dark:text-zinc-500">Loading profile…</p>
+          <div className="w-7 h-7 rounded-full border-2 border-[#007aff] dark:border-[#0a84ff] border-t-transparent animate-spin" />
+          <p className="text-[13px] text-[#8e8e93]">Loading…</p>
         </div>
       </div>
     );
@@ -64,50 +64,55 @@ export default function ProfilePage() {
   const showResend = !user.isVerified && providers.includes('local');
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-zinc-950">
+    <div className="min-h-screen bg-[#f5f5f7] dark:bg-black">
 
-      {/* Top bar */}
-      <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-3 bg-white dark:bg-zinc-900 border-b border-gray-200 dark:border-zinc-800">
-        <Link
-          href="/chats"
-          className="flex items-center justify-center w-8 h-8 rounded-full text-gray-500 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
-          aria-label="Back to chats"
-        >
-          <BackArrowIcon />
-        </Link>
-        <h1 className="text-base font-semibold text-gray-900 dark:text-zinc-100">Profile</h1>
+      {/* Nav bar */}
+      <div className="sticky top-0 z-10 bg-[#f5f5f7]/90 dark:bg-black/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-[#38383a]">
+        <div className="flex items-center px-4 py-3 max-w-lg mx-auto">
+          <Link
+            href="/chats"
+            className="flex items-center gap-1 text-[#007aff] dark:text-[#0a84ff] hover:opacity-80 transition-opacity"
+            aria-label="Back to chats"
+          >
+            <BackArrowIcon />
+            <span className="text-[17px]">Back</span>
+          </Link>
+          <h1 className="absolute left-1/2 -translate-x-1/2 text-[17px] font-semibold text-[#1c1c1e] dark:text-[#f5f5f7]">
+            Profile
+          </h1>
+        </div>
       </div>
 
       {/* Avatar hero */}
-      <div className="flex flex-col items-center gap-3 pt-10 pb-6 px-4 bg-white dark:bg-zinc-900 border-b border-gray-200 dark:border-zinc-800">
+      <div className="flex flex-col items-center gap-3 pt-8 pb-6 px-4">
         <Avatar name={displayName} seed={user.id} size="xl" />
         <div className="text-center">
-          <p className="text-xl font-bold text-gray-900 dark:text-zinc-100">{displayName}</p>
-          <p className="text-sm text-gray-500 dark:text-zinc-500 mt-0.5">@{user.username}</p>
+          <p className="text-[22px] font-bold text-[#1c1c1e] dark:text-[#f5f5f7]">{displayName}</p>
+          <p className="text-[14px] text-[#8e8e93] mt-0.5">@{user.username}</p>
         </div>
       </div>
 
       {/* Content */}
-      <div className="max-w-lg mx-auto px-4 py-6 space-y-5">
+      <div className="max-w-lg mx-auto px-4 pb-10 space-y-6">
 
         {/* Email verification warning */}
         {showResend && (
-          <div className="flex items-start gap-3 rounded-xl bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/50 px-4 py-3.5">
+          <div className="flex items-start gap-3 rounded-2xl bg-amber-50 dark:bg-amber-900/10 border border-amber-200/80 dark:border-amber-800/40 px-4 py-3.5">
             <WarningIcon className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Email not verified</p>
-              <p className="text-xs text-amber-600 dark:text-amber-500 mt-0.5">
+              <p className="text-[14px] font-semibold text-amber-700 dark:text-amber-400">Email not verified</p>
+              <p className="text-[12px] text-amber-600/80 dark:text-amber-500/80 mt-0.5">
                 Check your inbox for a verification link.
               </p>
               {resendSent ? (
-                <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-2 font-medium">
+                <p className="text-[12px] text-emerald-600 dark:text-emerald-400 mt-2 font-medium">
                   ✓ Email sent. Check your inbox.
                 </p>
               ) : (
                 <button
                   onClick={handleResend}
                   disabled={resending}
-                  className="mt-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline disabled:opacity-50"
+                  className="mt-2 text-[12px] font-semibold text-[#007aff] dark:text-[#0a84ff] hover:opacity-80 transition-opacity disabled:opacity-50"
                 >
                   {resending ? 'Sending…' : 'Resend verification email'}
                 </button>
@@ -119,18 +124,18 @@ export default function ProfilePage() {
         {/* Account info */}
         <section>
           <SectionLabel>Account</SectionLabel>
-          <div className="rounded-xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 overflow-hidden divide-y divide-gray-100 dark:divide-zinc-800">
+          <div className="rounded-2xl bg-white dark:bg-[#1c1c1e] overflow-hidden divide-y divide-gray-100 dark:divide-[#38383a] shadow-sm dark:shadow-none">
             <Row label="Email">
               <div className="flex items-center gap-2 min-w-0">
-                <span className="truncate text-sm text-gray-700 dark:text-zinc-200">{user.email}</span>
+                <span className="truncate text-[14px] text-[#1c1c1e] dark:text-[#f5f5f7]">{user.email}</span>
                 <VerifiedBadge verified={user.isVerified} />
               </div>
             </Row>
             <Row label="Username">
-              <span className="text-sm text-gray-700 dark:text-zinc-200">@{user.username}</span>
+              <span className="text-[14px] text-[#1c1c1e] dark:text-[#f5f5f7]">@{user.username}</span>
             </Row>
             <Row label="User ID">
-              <span className="text-xs font-mono text-gray-400 dark:text-zinc-500 truncate max-w-[180px]">{user.id}</span>
+              <span className="text-[11px] font-mono text-[#8e8e93] truncate max-w-[160px]">{user.id}</span>
             </Row>
           </div>
         </section>
@@ -138,22 +143,22 @@ export default function ProfilePage() {
         {/* Connected providers */}
         <section>
           <SectionLabel>Connected accounts</SectionLabel>
-          <div className="rounded-xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 overflow-hidden divide-y divide-gray-100 dark:divide-zinc-800">
+          <div className="rounded-2xl bg-white dark:bg-[#1c1c1e] overflow-hidden divide-y divide-gray-100 dark:divide-[#38383a] shadow-sm dark:shadow-none">
             {ALL_PROVIDERS.map((p) => {
               const connected = providers.includes(p);
               return (
                 <div key={p} className="flex items-center gap-3 px-4 py-3.5">
-                  <span className="flex-shrink-0">{PROVIDER_ICONS[p]}</span>
-                  <span className="flex-1 text-sm text-gray-800 dark:text-zinc-200">
+                  <span className="flex-shrink-0 w-7 h-7 flex items-center justify-center">{PROVIDER_ICONS[p]}</span>
+                  <span className="flex-1 text-[14px] text-[#1c1c1e] dark:text-[#f5f5f7]">
                     {PROVIDER_LABELS[p]}
                   </span>
                   {connected ? (
-                    <span className="flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                    <span className="flex items-center gap-1 text-[12px] font-medium text-emerald-600 dark:text-emerald-400">
                       <CheckCircleIcon className="w-3.5 h-3.5" />
                       Connected
                     </span>
                   ) : (
-                    <span className="text-xs text-gray-400 dark:text-zinc-600">Not connected</span>
+                    <span className="text-[12px] text-[#c7c7cc] dark:text-[#636366]">Not connected</span>
                   )}
                 </div>
               );
@@ -164,10 +169,10 @@ export default function ProfilePage() {
         {/* Logout */}
         <button
           onClick={handleLogout}
-          className="w-full flex items-center justify-center gap-2 rounded-xl border border-red-200 dark:border-red-900/50 bg-white dark:bg-zinc-900 hover:bg-red-50 dark:hover:bg-red-900/20 px-4 py-3 text-sm font-semibold text-red-500 dark:text-red-400 transition-colors"
+          className="w-full flex items-center justify-center gap-2 rounded-2xl bg-white dark:bg-[#1c1c1e] border border-red-200/80 dark:border-red-900/30 hover:bg-red-50 dark:hover:bg-red-900/10 px-4 py-3.5 text-[15px] font-semibold text-red-500 dark:text-red-400 transition-colors shadow-sm dark:shadow-none"
         >
           <LogoutIcon />
-          Log out
+          Sign Out
         </button>
 
       </div>
@@ -179,7 +184,7 @@ export default function ProfilePage() {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-xs font-semibold text-gray-400 dark:text-zinc-500 uppercase tracking-wider px-1 mb-2">
+    <p className="text-[11px] font-semibold text-[#8e8e93] uppercase tracking-wider px-4 mb-2">
       {children}
     </p>
   );
@@ -188,7 +193,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-4 px-4 py-3.5">
-      <span className="text-sm text-gray-500 dark:text-zinc-500 flex-shrink-0">{label}</span>
+      <span className="text-[14px] text-[#8e8e93] flex-shrink-0">{label}</span>
       <div className="min-w-0 flex justify-end">{children}</div>
     </div>
   );
@@ -197,14 +202,14 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 function VerifiedBadge({ verified }: { verified: boolean }) {
   if (verified) {
     return (
-      <span className="flex-shrink-0 inline-flex items-center gap-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/50 rounded-full px-2 py-0.5">
+      <span className="flex-shrink-0 inline-flex items-center gap-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 rounded-full px-2 py-0.5">
         <CheckCircleIcon className="w-3 h-3" />
         Verified
       </span>
     );
   }
   return (
-    <span className="flex-shrink-0 inline-flex items-center gap-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-full px-2 py-0.5">
+    <span className="flex-shrink-0 inline-flex items-center gap-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-full px-2 py-0.5">
       <WarningIcon className="w-3 h-3" />
       Unverified
     </span>
@@ -215,7 +220,7 @@ function VerifiedBadge({ verified }: { verified: boolean }) {
 
 function BackArrowIcon() {
   return (
-    <svg viewBox="0 0 20 20" className="w-5 h-5 fill-none stroke-current stroke-[1.8]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 20 20" className="w-5 h-5 fill-none stroke-current stroke-[2]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <polyline points="12 4 6 10 12 16" />
     </svg>
   );
@@ -251,7 +256,7 @@ function LogoutIcon() {
 
 const PROVIDER_ICONS: Record<string, React.ReactNode> = {
   local: (
-    <svg viewBox="0 0 20 20" className="w-5 h-5 text-gray-500 dark:text-zinc-400 fill-none stroke-current stroke-[1.5]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 20 20" className="w-5 h-5 text-[#8e8e93] fill-none stroke-current stroke-[1.5]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <rect x="2" y="4" width="16" height="13" rx="2" />
       <polyline points="2 7 10 12 18 7" />
     </svg>
@@ -265,12 +270,12 @@ const PROVIDER_ICONS: Record<string, React.ReactNode> = {
     </svg>
   ),
   github: (
-    <svg viewBox="0 0 20 20" className="w-5 h-5 text-gray-700 dark:text-zinc-300 fill-current" aria-hidden="true">
+    <svg viewBox="0 0 20 20" className="w-5 h-5 text-[#1c1c1e] dark:text-[#f5f5f7] fill-current" aria-hidden="true">
       <path d="M10 1.5a8.5 8.5 0 0 0-2.686 16.567c.425.078.58-.184.58-.41 0-.2-.007-.733-.011-1.44-2.364.514-2.863-1.139-2.863-1.139-.387-.983-.945-1.245-.945-1.245-.772-.527.058-.517.058-.517.854.06 1.303.877 1.303.877.758 1.298 1.99.923 2.474.706.077-.549.297-.923.54-1.135-1.888-.215-3.872-.944-3.872-4.203 0-.929.331-1.689.875-2.284-.088-.214-.38-1.08.083-2.25 0 0 .714-.228 2.34.872A8.155 8.155 0 0 1 10 6.84c.723.003 1.45.098 2.13.287 1.624-1.1 2.337-.872 2.337-.872.465 1.17.172 2.036.085 2.25.545.595.874 1.355.874 2.284 0 3.267-1.987 3.986-3.881 4.197.305.262.577.781.577 1.574 0 1.137-.01 2.054-.01 2.333 0 .228.153.492.584.409A8.5 8.5 0 0 0 10 1.5z" />
     </svg>
   ),
   apple: (
-    <svg viewBox="0 0 20 20" className="w-5 h-5 text-gray-700 dark:text-zinc-300 fill-current" aria-hidden="true">
+    <svg viewBox="0 0 20 20" className="w-5 h-5 text-[#1c1c1e] dark:text-[#f5f5f7] fill-current" aria-hidden="true">
       <path d="M14.25 1c.18 1.07-.3 2.14-.96 2.9-.68.8-1.77 1.42-2.85 1.34-.21-1.04.37-2.13 1-2.85C12.12 1.6 13.2.98 14.25 1zm2.62 4.74c-1.23-.74-2.62-.7-3.37-.7-.77 0-2.08.68-3.1.68-.96 0-2.14-.65-3.36-.65C4.97 5.07 2.5 7.04 2.5 10.67c0 4.38 3.34 9.33 5.26 9.33.94 0 1.68-.64 2.76-.64 1.1 0 1.68.65 2.82.65 2.06 0 5.16-4.72 5.16-8.6 0-.04-2.17-1.19-2.17-3.67 0-2.17 1.6-3.1 1.64-3.1z" />
     </svg>
   ),

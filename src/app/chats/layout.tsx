@@ -41,7 +41,7 @@ function ChatsShell({ children }: { children: React.ReactNode }) {
   if (!hydrated || !session) return null;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-zinc-950">
+    <div className="flex h-screen overflow-hidden bg-[#f5f5f7] dark:bg-black">
       {/* Sidebar: full-width on mobile when open, fixed-width on desktop */}
       <div
         className={`${

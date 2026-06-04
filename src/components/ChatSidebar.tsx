@@ -54,10 +54,7 @@ export function ChatSidebar() {
   function handleSearchChange(e: React.ChangeEvent<HTMLInputElement>) {
     const val = e.target.value;
     setQuery(val);
-    if (!val.trim()) {
-      clearSearch();
-      return;
-    }
+    if (!val.trim()) { clearSearch(); return; }
     startSearch(async () => {
       try {
         const { users } = await searchUsers(val.trim());
@@ -77,9 +74,7 @@ export function ChatSidebar() {
   }
 
   function startNewChat(user: PublicUserDTO) {
-    const existing = chats.find((c) =>
-      c.participants.some((p) => p.userId === user.id),
-    );
+    const existing = chats.find((c) => c.participants.some((p) => p.userId === user.id));
     if (existing) {
       router.push(`/chats/${existing.id}`);
     } else {
@@ -97,17 +92,17 @@ export function ChatSidebar() {
   const isSearching = query.trim().length > 0;
 
   return (
-    <aside className="flex flex-col h-full bg-gray-50 dark:bg-zinc-900 border-r border-gray-200 dark:border-zinc-800">
+    <aside className="flex flex-col h-full bg-white dark:bg-[#1c1c1e] border-r border-gray-200/80 dark:border-[#38383a]">
 
-      {/* App header */}
-      <div className="flex items-center justify-between px-4 py-3.5 flex-shrink-0">
-        <span className="text-base font-bold tracking-tight text-indigo-600 dark:text-indigo-400">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 pt-4 pb-3 flex-shrink-0">
+        <span className="text-[17px] font-bold tracking-tight text-[#007aff] dark:text-[#0a84ff]">
           Signalix
         </span>
         <button
           onClick={cycleTheme}
           title={`Theme: ${theme}. Click to switch.`}
-          className="w-8 h-8 flex items-center justify-center rounded-full text-gray-500 dark:text-zinc-400 hover:bg-gray-200 dark:hover:bg-zinc-800 transition-colors"
+          className="w-8 h-8 flex items-center justify-center rounded-full text-[#8e8e93] hover:bg-black/[0.06] dark:hover:bg-white/[0.08] transition-colors"
         >
           {theme === 'dark' ? <MoonIcon /> : theme === 'light' ? <SunIcon /> : <SystemIcon />}
         </button>
@@ -117,30 +112,29 @@ export function ChatSidebar() {
       {currentUser && (
         <Link
           href="/settings/profile"
-          className="flex items-center gap-3 mx-3 mb-2 px-3 py-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-zinc-800/60 transition-colors group"
+          className="flex items-center gap-3 mx-3 mb-3 px-3 py-2.5 rounded-2xl hover:bg-black/[0.04] dark:hover:bg-white/[0.05] transition-colors group"
         >
           <div className="relative">
-            <Avatar
-              name={currentUser.displayName ?? currentUser.username}
-              seed={currentUser.id}
-              size="md"
-            />
-            <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-gray-50 dark:ring-zinc-900 shadow-sm" />
+            <Avatar name={currentUser.displayName ?? currentUser.username} seed={currentUser.id} size="md" />
+            <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-white dark:ring-[#1c1c1e] shadow-sm" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold truncate text-gray-900 dark:text-zinc-100">
+            <p className="text-[14px] font-semibold truncate text-[#1c1c1e] dark:text-[#f5f5f7]">
               {currentUser.displayName ?? currentUser.username}
             </p>
-            <p className="text-xs text-gray-500 dark:text-zinc-500 truncate">@{currentUser.username}</p>
+            <p className="text-[12px] text-[#8e8e93] truncate">@{currentUser.username}</p>
           </div>
-          <ChevronRightIcon className="w-4 h-4 text-gray-400 dark:text-zinc-600 group-hover:text-gray-500 dark:group-hover:text-zinc-400 flex-shrink-0 transition-colors" />
+          <ChevronRightIcon className="w-3.5 h-3.5 text-[#c7c7cc] dark:text-[#48484a] group-hover:text-[#8e8e93] dark:group-hover:text-[#636366] flex-shrink-0 transition-colors" />
         </Link>
       )}
+
+      {/* Divider */}
+      <div className="mx-4 mb-3 border-t border-gray-100 dark:border-[#38383a]" />
 
       {/* Search */}
       <div className="px-3 mb-2 flex-shrink-0">
         <div className="relative">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500 pointer-events-none">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8e8e93] pointer-events-none">
             <SearchIcon />
           </span>
           <input
@@ -148,14 +142,14 @@ export function ChatSidebar() {
             type="text"
             value={query}
             onChange={handleSearchChange}
-            placeholder="Search users…"
-            className="w-full rounded-xl bg-gray-200/70 dark:bg-zinc-800 border-0 pl-9 pr-9 py-2 text-sm text-gray-900 dark:text-zinc-100 placeholder-gray-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-shadow"
+            placeholder="Search"
+            className="w-full rounded-xl bg-[#f2f2f7] dark:bg-[#2c2c2e] border-0 pl-9 pr-9 py-2 text-[14px] text-[#1c1c1e] dark:text-[#f5f5f7] placeholder-[#8e8e93] focus:outline-none focus:ring-2 focus:ring-[#007aff]/30 dark:focus:ring-[#0a84ff]/20 transition-shadow"
           />
           {query && (
             <button
               type="button"
               onClick={clearSearch}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500 hover:text-gray-600 dark:hover:text-zinc-300"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8e8e93] hover:text-[#636366] dark:hover:text-[#aeaeb2] transition-colors"
             >
               <XSmallIcon />
             </button>
@@ -167,13 +161,13 @@ export function ChatSidebar() {
       {isSearching && (
         <div className="flex-1 overflow-y-auto px-3 space-y-0.5">
           {searching && (
-            <p className="text-xs text-gray-400 dark:text-zinc-500 px-2 py-2">Searching…</p>
+            <p className="text-[12px] text-[#8e8e93] px-2 py-2">Searching…</p>
           )}
           {!searching && searched && results.length === 0 && (
             <div className="flex flex-col items-center justify-center py-12 gap-2 text-center">
               <NoResultsIcon />
-              <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">No users found</p>
-              <p className="text-xs text-gray-400 dark:text-zinc-500">Try a different username</p>
+              <p className="text-[14px] font-medium text-[#1c1c1e] dark:text-[#f5f5f7]">No users found</p>
+              <p className="text-[12px] text-[#8e8e93]">Try a different username</p>
             </div>
           )}
           {results.map((user) => {
@@ -184,23 +178,23 @@ export function ChatSidebar() {
                 key={user.id}
                 type="button"
                 onClick={() => startNewChat(user)}
-                className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-gray-100 dark:hover:bg-zinc-800/60 transition-colors text-left"
+                className="w-full flex items-center gap-3 rounded-2xl px-3 py-2.5 hover:bg-black/[0.04] dark:hover:bg-white/[0.05] transition-colors text-left"
               >
                 <div className="relative flex-shrink-0">
                   <Avatar name={name} seed={user.id} size="md" />
                   {isOnline && (
                     <PresenceIndicator
                       online
-                      className="absolute -bottom-0.5 -right-0.5 ring-2 ring-gray-50 dark:ring-zinc-900"
+                      className="absolute -bottom-0.5 -right-0.5 ring-2 ring-white dark:ring-[#1c1c1e]"
                     />
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold truncate text-gray-900 dark:text-zinc-100">{name}</p>
-                  <p className="text-xs text-gray-500 dark:text-zinc-500 truncate">@{user.username}</p>
+                  <p className="text-[14px] font-medium truncate text-[#1c1c1e] dark:text-[#f5f5f7]">{name}</p>
+                  <p className="text-[12px] text-[#8e8e93] truncate">@{user.username}</p>
                 </div>
                 {isOnline && (
-                  <span className="text-[10px] font-medium text-emerald-500 flex-shrink-0">Online</span>
+                  <span className="text-[11px] font-medium text-emerald-500 flex-shrink-0">Online</span>
                 )}
               </button>
             );
@@ -210,14 +204,14 @@ export function ChatSidebar() {
 
       {/* Chat list */}
       {!isSearching && (
-        <nav className="flex-1 overflow-y-auto px-3 space-y-0.5 pb-2">
+        <nav className="flex-1 overflow-y-auto px-3 space-y-0.5 pb-3">
           {chats.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-4 py-16">
               <EmptyChatIcon />
               <div>
-                <p className="text-sm font-semibold text-gray-700 dark:text-zinc-300">Welcome to Signalix</p>
-                <p className="text-xs text-gray-400 dark:text-zinc-500 mt-1">
-                  Start a conversation by searching for a username above.
+                <p className="text-[14px] font-semibold text-[#1c1c1e] dark:text-[#f5f5f7]">No conversations yet</p>
+                <p className="text-[12px] text-[#8e8e93] mt-1">
+                  Search for a username to start chatting.
                 </p>
               </div>
             </div>
@@ -267,7 +261,7 @@ function XSmallIcon() {
 
 function ChevronRightIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 16 16" className={`fill-none stroke-current stroke-2 ${className}`} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 16 16" className={`fill-none stroke-current stroke-[2.5] ${className}`} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <polyline points="6 4 10 8 6 12" />
     </svg>
   );
@@ -309,7 +303,7 @@ function SystemIcon() {
 
 function EmptyChatIcon() {
   return (
-    <svg viewBox="0 0 48 48" className="w-12 h-12 text-gray-300 dark:text-zinc-700 fill-none stroke-current stroke-[1.5]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 48 48" className="w-14 h-14 text-[#c7c7cc] dark:text-[#3a3a3c] fill-none stroke-current stroke-[1.5]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M8 12a4 4 0 0 1 4-4h24a4 4 0 0 1 4 4v20a4 4 0 0 1-4 4H16l-8 6V12z" />
       <line x1="16" y1="20" x2="32" y2="20" />
       <line x1="16" y1="27" x2="26" y2="27" />
@@ -319,7 +313,7 @@ function EmptyChatIcon() {
 
 function NoResultsIcon() {
   return (
-    <svg viewBox="0 0 48 48" className="w-10 h-10 text-gray-300 dark:text-zinc-700 fill-none stroke-current stroke-[1.5]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 48 48" className="w-10 h-10 text-[#c7c7cc] dark:text-[#3a3a3c] fill-none stroke-current stroke-[1.5]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="22" cy="22" r="14" />
       <line x1="32" y1="32" x2="44" y2="44" />
       <line x1="17" y1="22" x2="27" y2="22" />
