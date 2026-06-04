@@ -23,6 +23,7 @@ export function ChatSidebar() {
   const chats = useChatStore((s) => s.chats);
   const messages = useChatStore((s) => s.messages);
   const presence = useChatStore((s) => s.presence);
+  const unreadCounts = useChatStore((s) => s.unreadCounts);
   const setPendingRecipient = useChatStore((s) => s.setPendingRecipient);
 
   const [currentUser, setCurrentUser] = useState<{ id: string; displayName?: string; username: string } | null>(null);
@@ -232,6 +233,7 @@ export function ChatSidebar() {
                     presence={presence}
                     active={chat.id === activeChatId}
                     lastMessage={lastMessage}
+                    unreadCount={unreadCounts[chat.id] ?? 0}
                   />
                 </div>
               );

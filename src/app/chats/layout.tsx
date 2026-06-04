@@ -6,6 +6,7 @@ import { useAuthStore } from '../../store/auth.store';
 import { useChatStore } from '../../store/chat.store';
 import { SidebarProvider, useSidebar } from '../../lib/sidebar-context';
 import { ChatSidebar } from '../../components/ChatSidebar';
+import { requestNotificationPermission } from '../../lib/notification';
 
 function ChatsShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -33,6 +34,8 @@ function ChatsShell({ children }: { children: React.ReactNode }) {
     initializedForUser.current = session.userId;
     initWsHandler();
     loadChats();
+    // Ask for notification permission once per session after the user is signed in.
+    requestNotificationPermission();
   }, [hydrated, session, initWsHandler, loadChats]);
 
   if (!hydrated || !session) return null;

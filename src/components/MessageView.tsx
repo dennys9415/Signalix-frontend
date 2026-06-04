@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import type { ChatDTO, MessageDTO } from '@signalix/contracts';
 import { useChatStore, type TempMessage, type StoredMessage } from '../store/chat.store';
 import { useAuthStore } from '../store/auth.store';
@@ -9,6 +10,7 @@ import { Avatar } from './Avatar';
 import { PresenceIndicator } from './PresenceIndicator';
 import { StatusIcon } from './StatusIcon';
 import { MessageInput } from './MessageInput';
+import { ContactProfileModal } from './ContactProfileModal';
 
 const EMPTY_MESSAGES: StoredMessage[] = [];
 
@@ -107,11 +109,16 @@ export function MessageView({ chat }: Props) {
   const sendMessage = useChatStore((s) => s.sendMessage);
   const loadMessages = useChatStore((s) => s.loadMessages);
   const markRead = useChatStore((s) => s.markRead);
+  const router = useRouter();
   const { setOpen } = useSidebar();
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const setActiveChatId = useChatStore((s) => s.setActiveChatId);
+  const clearUnread = useChatStore((s) => s.clearUnread);
 
   const currentUserId = session?.userId ?? '';
   const other = getOtherParticipant(chat, currentUserId);
@@ -119,6 +126,13 @@ export function MessageView({ chat }: Props) {
   const otherUsername = other?.user?.username ?? '';
   const otherSeed = other?.userId ?? chat.id;
   const isOnline = other ? (presence[other.userId] ?? 'offline') === 'online' : false;
+
+  // Register this chat as active; clear any unread count; deregister on unmount.
+  useEffect(() => {
+    setActiveChatId(chat.id);
+    clearUnread(chat.id);
+    return () => setActiveChatId(null);
+  }, [chat.id, setActiveChatId, clearUnread]);
 
   useEffect(() => {
     loadMessages(chat.id);
@@ -161,7 +175,7 @@ export function MessageView({ chat }: Props) {
       <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex-shrink-0">
         {/* Mobile back button */}
         <button
-          onClick={() => setOpen(true)}
+          onClick={() => { setOpen(true); router.push('/chats'); }}
           className="md:hidden flex items-center justify-center w-8 h-8 -ml-1 rounded-full text-gray-500 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
           aria-label="Back to chats"
         >
@@ -194,7 +208,7 @@ export function MessageView({ chat }: Props) {
             <div className="absolute right-0 top-full mt-1.5 w-52 rounded-xl shadow-xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 z-50 overflow-hidden py-1">
               <button
                 className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-zinc-700/50 transition-colors text-left"
-                onClick={() => { setMenuOpen(false); }}
+                onClick={() => { setMenuOpen(false); setProfileOpen(true); }}
               >
                 <UserIcon />
                 <span>View Profile</span>
@@ -252,6 +266,16 @@ export function MessageView({ chat }: Props) {
       </div>
 
       <MessageInput onSend={handleSend} />
+
+      {profileOpen && other && (
+        <ContactProfileModal
+          userId={other.userId}
+          displayName={otherName}
+          username={otherUsername}
+          isOnline={isOnline}
+          onClose={() => setProfileOpen(false)}
+        />
+      )}
     </div>
   );
 }

@@ -12,6 +12,7 @@ import type {
 import { MessageStatus, ServerEvent } from '@signalix/contracts';
 import * as api from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
+import { playNotificationSound, showBrowserNotification } from '../lib/notification';
 
 export interface TempMessage {
   tempId: string;
@@ -27,6 +28,8 @@ interface ChatState {
   chats: ChatDTO[];
   messages: Record<string, StoredMessage[]>; // chatId → oldest-first
   presence: Record<string, 'online' | 'offline'>; // userId → status
+  unreadCounts: Record<string, number>; // chatId → count
+  activeChatId: string | null; // the chat currently open
   pendingRecipient: PublicUserDTO | null;
   pendingChatId: string | null;
   loadingChats: boolean;
@@ -41,12 +44,16 @@ interface ChatState {
   setPendingRecipient: (user: PublicUserDTO | null) => void;
   clearPendingChatId: () => void;
   setPresence: (userId: string, status: 'online' | 'offline') => void;
+  setActiveChatId: (chatId: string | null) => void;
+  clearUnread: (chatId: string) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
   chats: [],
   messages: {},
   presence: {},
+  unreadCounts: {},
+  activeChatId: null,
   pendingRecipient: null,
   pendingChatId: null,
   loadingChats: false,
@@ -60,7 +67,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const p = payload as ServerMessageSentPayload;
         set((s) => {
           const chatMsgs = s.messages[p.chatId] ?? [];
-          // Replace temp message if tempId present, otherwise append
           const updated = p.tempId
             ? chatMsgs.map((m) =>
                 'tempId' in m && m.tempId === p.tempId
@@ -86,6 +92,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (event === ServerEvent.MESSAGE_NEW) {
         const p = payload as ServerMessageNewPayload;
         const isNewChat = !state.chats.some((c) => c.id === p.chatId);
+        const isActiveChat = state.activeChatId === p.chatId;
+
         set((s) => {
           const existing = s.messages[p.chatId] ?? [];
           const alreadyHave = existing.some((m) => 'id' in m && m.id === p.messageId);
@@ -100,15 +108,33 @@ export const useChatStore = create<ChatState>((set, get) => ({
             state: 'delivered' as never,
             createdAt: p.timestamp,
           };
+
           return {
             messages: { ...s.messages, [p.chatId]: [...existing, msg] },
+            // Only count as unread when the user isn't looking at this chat.
+            unreadCounts: isActiveChat
+              ? s.unreadCounts
+              : { ...s.unreadCounts, [p.chatId]: (s.unreadCounts[p.chatId] ?? 0) + 1 },
           };
         });
-        // Acknowledge delivery
+
         wsClient.sendMessageDelivered({ messageId: p.messageId, chatId: p.chatId });
-        // If this is the first message of a brand-new chat, refresh the sidebar.
-        if (isNewChat) {
-          void get().loadChats();
+
+        if (isNewChat) void get().loadChats();
+
+        // Notifications for messages arriving in a chat the user is not viewing.
+        if (!isActiveChat) {
+          playNotificationSound();
+
+          // Resolve sender name from already-loaded chat participants.
+          const chat = state.chats.find((c) => c.id === p.chatId);
+          const participant = chat?.participants.find((pt) => pt.userId === p.senderId);
+          const senderName =
+            participant?.user?.displayName ??
+            participant?.user?.username ??
+            'New message';
+
+          showBrowserNotification(senderName, p.ciphertext);
         }
       }
 
@@ -119,10 +145,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
           if (!chatMsgs) return s;
           const newState = p.status === MessageStatus.READ ? 'read' : 'delivered';
           const idx = chatMsgs.findIndex((m) => 'id' in m && m.id === p.messageId);
-          // No match — nothing to update; return same reference to avoid spurious re-renders.
           if (idx === -1) return s;
           const target = chatMsgs[idx];
-          // Already in the target state — no change needed.
           if ('state' in target && target.state === newState) return s;
           const updated = chatMsgs.map((m, i) =>
             i === idx ? ({ ...m, state: newState } as MessageDTO) : m,
@@ -158,7 +182,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((s) => ({ loadingMessages: { ...s.loadingMessages, [chatId]: true } }));
     try {
       const { messages } = await api.getMessages(chatId, { limit: 50 });
-      // API returns newest-first; reverse to oldest-first
       set((s) => ({
         messages: { ...s.messages, [chatId]: [...messages].reverse() },
         loadingMessages: { ...s.loadingMessages, [chatId]: false },
@@ -216,5 +239,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setPresence(userId, status) {
     set((s) => ({ presence: { ...s.presence, [userId]: status } }));
+  },
+
+  setActiveChatId(chatId) {
+    set({ activeChatId: chatId });
+  },
+
+  clearUnread(chatId) {
+    set((s) => {
+      if (!s.unreadCounts[chatId]) return s; // already zero — no re-render
+      return { unreadCounts: { ...s.unreadCounts, [chatId]: 0 } };
+    });
   },
 }));
