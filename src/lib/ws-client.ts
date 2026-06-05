@@ -1,9 +1,16 @@
 import {
   ClientEvent,
   ServerEvent,
+  type ClientMessageDeleteForEveryonePayload,
+  type ClientMessageEditPayload,
+  type ClientMessageReactionRemovePayload,
+  type ClientMessageReactionSetPayload,
   type ClientMessageSendPayload,
   type MessageStatusPayload,
+  type ServerMessageDeletedForEveryonePayload,
+  type ServerMessageEditedPayload,
   type ServerMessageNewPayload,
+  type ServerMessageReactionUpdatedPayload,
   type ServerMessageSentPayload,
   type WsAuthenticatePayload,
   type WsHeartbeatPayload,
@@ -60,9 +67,33 @@ class WsClient {
     this.send(ClientEvent.MESSAGE_READ, payload);
   }
 
+  sendMessageDeleteForEveryone(payload: ClientMessageDeleteForEveryonePayload): void {
+    this.send(ClientEvent.MESSAGE_DELETE_FOR_EVERYONE, payload);
+  }
+
+  sendMessageEdit(payload: ClientMessageEditPayload): void {
+    this.send(ClientEvent.MESSAGE_EDIT, payload);
+  }
+
+  sendMessageReactionSet(payload: ClientMessageReactionSetPayload): void {
+    this.send(ClientEvent.MESSAGE_REACTION_SET, payload);
+  }
+
+  sendMessageReactionRemove(payload: ClientMessageReactionRemovePayload): void {
+    this.send(ClientEvent.MESSAGE_REACTION_REMOVE, payload);
+  }
+
   sendHeartbeat(): void {
     const p: WsHeartbeatPayload = { timestamp: new Date().toISOString() };
     this.send(ClientEvent.HEARTBEAT, p);
+  }
+
+  sendTypingStart(payload: { chatId: string }): void {
+    this.send(ClientEvent.TYPING_START, payload);
+  }
+
+  sendTypingStop(payload: { chatId: string }): void {
+    this.send(ClientEvent.TYPING_STOP, payload);
   }
 
   private openSocket(): void {
@@ -114,6 +145,9 @@ export const wsClient = new WsClient();
 export type {
   ServerMessageSentPayload,
   ServerMessageNewPayload,
+  ServerMessageDeletedForEveryonePayload,
+  ServerMessageEditedPayload,
+  ServerMessageReactionUpdatedPayload,
   MessageStatusPayload,
 };
 export { ServerEvent };

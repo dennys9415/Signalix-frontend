@@ -5,20 +5,26 @@
 @layer base {
   :root {
     color-scheme: light dark;
+    --accent: #007aff;
+    --accent-dark: #0a84ff;
+    --surface: rgba(255, 255, 255, 0.82);
+    --surface-dark: rgba(24, 24, 32, 0.88);
+    --bg: #f2f2f7;
+    --bg-dark: #0c0c12;
   }
 
   * {
     scrollbar-width: thin;
-    scrollbar-color: #c7c7cc transparent;
+    scrollbar-color: rgba(0, 0, 0, 0.14) transparent;
   }
 
   .dark * {
-    scrollbar-color: #3a3a3c transparent;
+    scrollbar-color: rgba(255, 255, 255, 0.09) transparent;
   }
 
   *::-webkit-scrollbar {
-    width: 4px;
-    height: 4px;
+    width: 5px;
+    height: 5px;
   }
 
   *::-webkit-scrollbar-track {
@@ -26,11 +32,19 @@
   }
 
   *::-webkit-scrollbar-thumb {
-    background-color: #c7c7cc;
+    background: rgba(0, 0, 0, 0.14);
     border-radius: 9999px;
   }
 
   .dark *::-webkit-scrollbar-thumb {
-    background-color: #3a3a3c;
+    background: rgba(255, 255, 255, 0.09);
+  }
+
+  ::selection {
+    background: rgba(0, 122, 255, 0.18);
+  }
+
+  .dark ::selection {
+    background: rgba(10, 132, 255, 0.25);
   }
 }

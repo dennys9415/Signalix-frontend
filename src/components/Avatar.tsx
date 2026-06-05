@@ -11,11 +11,22 @@ const SIZES = {
 interface Props {
   name: string;
   seed: string;
+  avatarUrl?: string | null | undefined;
   size?: keyof typeof SIZES;
   className?: string;
 }
 
-export function Avatar({ name, seed, size = 'md', className = '' }: Props) {
+export function Avatar({ name, seed, avatarUrl, size = 'md', className = '' }: Props) {
+  if (avatarUrl) {
+    return (
+      <img
+        src={avatarUrl}
+        alt={name}
+        className={`rounded-full object-cover select-none flex-shrink-0 ${SIZES[size]} ${className}`}
+      />
+    );
+  }
+
   return (
     <div
       className={`rounded-full flex items-center justify-center font-semibold text-white select-none flex-shrink-0 ${SIZES[size]} ${className}`}

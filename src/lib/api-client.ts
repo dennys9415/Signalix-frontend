@@ -2,11 +2,14 @@ import type {
   ApiResponse,
   AuthSessionDTO,
   ChatDTO,
+  DeleteChatForMeResponse,
   DeleteMessageForMeResponse,
   ExactUsernameLookupResponse,
   ForgotPasswordResponse,
   GetMessagesResponse,
   LoginRequest,
+  MarkChatReadResponse,
+  PresenceLookupResponse,
   RefreshTokenRequest,
   RegisterRequest,
   ResendVerificationResponse,
@@ -71,6 +74,39 @@ async function authed<T>(method: string, path: string, body?: unknown): Promise<
   }
 }
 
+// Multipart upload — no Content-Type header (browser sets boundary automatically)
+async function authedUpload<T>(path: string, form: FormData): Promise<T> {
+  const session = loadSession();
+  if (!session) throw new ApiError('Not authenticated', 401);
+
+  async function attempt(token: string): Promise<T> {
+    const res = await fetch(`${BASE}${path}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    const json = (await res.json()) as ApiResponse<T>;
+    if (!json.success || json.data === undefined) {
+      throw new ApiError(
+        json.error?.message ?? `POST ${path} → ${res.status}`,
+        res.status,
+        json.error?.code,
+      );
+    }
+    return json.data;
+  }
+
+  try {
+    return await attempt(session.accessToken);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) {
+      const refreshed = await refresh(session.refreshToken);
+      return await attempt(refreshed.accessToken);
+    }
+    throw err;
+  }
+}
+
 // ─── Public auth endpoints ────────────────────────────────────────────────────
 
 export function register(dto: RegisterRequest): Promise<AuthSessionDTO> {
@@ -129,6 +165,28 @@ export function deleteMessageForMe(messageId: string): Promise<DeleteMessageForM
   );
 }
 
+export function getPresence(userIds: string[]): Promise<PresenceLookupResponse> {
+  if (userIds.length === 0) return Promise.resolve({ presence: [] });
+  return authed<PresenceLookupResponse>(
+    'GET',
+    `/api/v1/presence?userIds=${userIds.map(encodeURIComponent).join(',')}`,
+  );
+}
+
+export function markChatRead(chatId: string): Promise<MarkChatReadResponse> {
+  return authed<MarkChatReadResponse>(
+    'POST',
+    `/api/v1/chats/${encodeURIComponent(chatId)}/read`,
+  );
+}
+
+export function deleteChatForMe(chatId: string): Promise<DeleteChatForMeResponse> {
+  return authed<DeleteChatForMeResponse>(
+    'POST',
+    `/api/v1/chats/${encodeURIComponent(chatId)}/delete-for-me`,
+  );
+}
+
 export function forgotPassword(email: string): Promise<ForgotPasswordResponse> {
   return raw<ForgotPasswordResponse>('POST', '/api/v1/auth/forgot-password', { body: { email } });
 }
@@ -143,4 +201,66 @@ export function resendVerification(email: string): Promise<ResendVerificationRes
 
 export function resetPassword(token: string, newPassword: string): Promise<ResetPasswordResponse> {
   return raw<ResetPasswordResponse>('POST', '/api/v1/auth/reset-password', { body: { token, newPassword } });
+}
+
+export function uploadAvatar(file: File): Promise<{ avatarUrl: string }> {
+  const form = new FormData();
+  form.append('avatar', file);
+  return authedUpload<{ avatarUrl: string }>('/api/v1/profile/avatar', form);
+}
+
+export function removeAvatar(): Promise<void> {
+  return authed<void>('DELETE', '/api/v1/profile/avatar');
+}
+
+export function uploadMedia(file: File): Promise<{ mediaUrl: string }> {
+  const form = new FormData();
+  form.append('media', file);
+  return authedUpload<{ mediaUrl: string }>('/api/v1/media/upload', form);
+}
+
+export function uploadFile(
+  file: File,
+): Promise<{ fileUrl: string; fileName: string; fileSize: number }> {
+  const form = new FormData();
+  form.append('file', file);
+  return authedUpload<{ fileUrl: string; fileName: string; fileSize: number }>(
+    '/api/v1/files/upload',
+    form,
+  );
+}
+
+export async function downloadFileAttachment(messageId: string, fileName: string): Promise<void> {
+  const session = loadSession();
+  if (!session) throw new ApiError('Not authenticated', 401);
+
+  async function attempt(token: string): Promise<void> {
+    const res = await fetch(`${BASE}/api/v1/files/${encodeURIComponent(messageId)}/download`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      const json = (await res.json()) as ApiResponse<never>;
+      throw new ApiError(json.error?.message ?? `Download failed: ${res.status}`, res.status, json.error?.code);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  try {
+    await attempt(session.accessToken);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) {
+      const refreshed = await refresh(session.refreshToken);
+      await attempt(refreshed.accessToken);
+      return;
+    }
+    throw err;
+  }
 }

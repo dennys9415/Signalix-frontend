@@ -47,21 +47,35 @@ export function requestNotificationPermission(): void {
   Notification.requestPermission().catch(() => {});
 }
 
-export function showBrowserNotification(senderName: string, preview: string): void {
+export function showBrowserNotification(
+  title: string,
+  body: string,
+  opts?: { icon?: string; chatId?: string },
+): void {
   if (typeof window === 'undefined') return;
   if (!('Notification' in window)) return;
   if (Notification.permission !== 'granted') return;
-  // Only show when the tab/window doesn't have focus.
-  if (document.hasFocus()) return;
 
   try {
-    const n = new Notification(senderName, {
-      body: preview.length > 120 ? preview.slice(0, 120) + '…' : preview,
-      tag: 'signalix-message', // coalesces rapid messages into one notification
-      silent: true,            // we already play our own sound
+    const n = new Notification(title, {
+      body: body.length > 120 ? body.slice(0, 120) + '…' : body,
+      // Per-chat tag so each conversation gets its own coalesced notification.
+      tag: opts?.chatId ? `signalix-${opts.chatId}` : 'signalix-message',
+      ...(opts?.icon ? { icon: opts.icon } : {}),
+      silent: true, // we already play our own sound
     });
+
+    if (opts?.chatId) {
+      const path = `/chats/${opts.chatId}`;
+      n.onclick = () => {
+        window.focus();
+        window.location.href = path;
+        n.close();
+      };
+    }
+
     setTimeout(() => n.close(), 6000);
   } catch {
-    // Blocked by browser.
+    // Blocked by browser or notification API unavailable.
   }
 }

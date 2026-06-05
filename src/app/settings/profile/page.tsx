@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import type { UserProfileResponse } from '@signalix/contracts';
 import { useAuthStore } from '../../../store/auth.store';
-import { getMe, resendVerification } from '../../../lib/api-client';
+import { getMe, resendVerification, uploadAvatar, removeAvatar } from '../../../lib/api-client';
 import { Avatar } from '../../../components/Avatar';
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -23,6 +23,22 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<UserProfileResponse | null>(null);
   const [resendSent, setResendSent] = useState(false);
   const [resending, setResending] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [editMenuOpen, setEditMenuOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const editMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!editMenuOpen) return;
+    function handleOutside(e: MouseEvent) {
+      if (editMenuRef.current && !editMenuRef.current.contains(e.target as Node)) {
+        setEditMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [editMenuOpen]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -43,6 +59,36 @@ export default function ProfilePage() {
     }
   }
 
+  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !profile) return;
+    setAvatarError(null);
+    setAvatarUploading(true);
+    try {
+      const { avatarUrl } = await uploadAvatar(file);
+      setProfile((p) => p ? { ...p, user: { ...p.user, avatarUrl } } : p);
+    } catch {
+      setAvatarError('Upload failed. Use a JPEG, PNG, or WebP under 5 MB.');
+    } finally {
+      setAvatarUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  async function handleRemoveAvatar() {
+    if (!profile?.user?.avatarUrl) return;
+    setAvatarError(null);
+    setAvatarUploading(true);
+    try {
+      await removeAvatar();
+      setProfile((p) => p ? { ...p, user: { ...p.user, avatarUrl: undefined } } : p);
+    } catch {
+      setAvatarError('Failed to remove avatar.');
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
+
   function handleLogout() {
     logout();
     router.replace('/login');
@@ -50,7 +96,7 @@ export default function ProfilePage() {
 
   if (!hydrated || !session || !profile) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#f5f5f7] dark:bg-black">
+      <div className="min-h-screen flex items-center justify-center bg-[#f2f2f7] dark:bg-[#0c0c12]">
         <div className="flex flex-col items-center gap-3">
           <div className="w-7 h-7 rounded-full border-2 border-[#007aff] dark:border-[#0a84ff] border-t-transparent animate-spin" />
           <p className="text-[13px] text-[#8e8e93]">Loading…</p>
@@ -64,20 +110,20 @@ export default function ProfilePage() {
   const showResend = !user.isVerified && providers.includes('local');
 
   return (
-    <div className="min-h-screen bg-[#f5f5f7] dark:bg-black">
+    <div className="min-h-screen bg-[#f2f2f7] dark:bg-[#0c0c12]">
 
       {/* Nav bar */}
-      <div className="sticky top-0 z-10 bg-[#f5f5f7]/90 dark:bg-black/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-[#38383a]">
-        <div className="flex items-center px-4 py-3 max-w-lg mx-auto">
+      <div className="sticky top-0 z-10 bg-[#f2f2f7]/90 dark:bg-[#0c0c12]/90 backdrop-blur-xl border-b border-black/[0.06] dark:border-white/[0.07]">
+        <div className="flex items-center px-4 py-3 max-w-lg mx-auto relative">
           <Link
             href="/chats"
-            className="flex items-center gap-1 text-[#007aff] dark:text-[#0a84ff] hover:opacity-80 transition-opacity"
+            className="flex items-center gap-1 text-[#007aff] dark:text-[#0a84ff] hover:opacity-75 transition-opacity"
             aria-label="Back to chats"
           >
             <BackArrowIcon />
             <span className="text-[17px]">Back</span>
           </Link>
-          <h1 className="absolute left-1/2 -translate-x-1/2 text-[17px] font-semibold text-[#1c1c1e] dark:text-[#f5f5f7]">
+          <h1 className="absolute left-1/2 -translate-x-1/2 text-[17px] font-semibold text-[#1d1d1f] dark:text-[#f5f5f7]">
             Profile
           </h1>
         </div>
@@ -85,9 +131,75 @@ export default function ProfilePage() {
 
       {/* Avatar hero */}
       <div className="flex flex-col items-center gap-3 pt-8 pb-6 px-4">
-        <Avatar name={displayName} seed={user.id} size="xl" />
+
+        {/* Avatar with upload spinner */}
+        <div className="relative">
+          <Avatar name={displayName} seed={user.id} avatarUrl={user.avatarUrl} size="xl" />
+          {avatarUploading && (
+            <div className="absolute inset-0 rounded-full flex items-center justify-center bg-black/40">
+              <div className="w-6 h-6 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+            </div>
+          )}
+        </div>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="hidden"
+          onChange={handleAvatarChange}
+        />
+
+        {/* Editar button + dropdown */}
+        <div className="relative" ref={editMenuRef}>
+          <button
+            type="button"
+            onClick={() => setEditMenuOpen((v) => !v)}
+            disabled={avatarUploading}
+            className="text-[14px] font-medium text-[#007aff] dark:text-[#0a84ff] hover:opacity-75 active:opacity-60 transition-opacity disabled:opacity-40 select-none"
+          >
+            Editar
+          </button>
+
+          {editMenuOpen && (
+            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-48 rounded-2xl bg-white/95 dark:bg-[#1c1c24]/95 backdrop-blur-xl shadow-xl shadow-black/[0.12] border border-black/[0.07] dark:border-white/[0.07] overflow-hidden z-20 py-1">
+              {user.avatarUrl ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => { setEditMenuOpen(false); fileInputRef.current?.click(); }}
+                    className="w-full text-left px-4 py-2.5 text-[14px] text-[#1d1d1f] dark:text-[#f5f5f7] hover:bg-black/[0.04] dark:hover:bg-white/[0.04] active:bg-black/[0.07] transition-colors"
+                  >
+                    Change photo
+                  </button>
+                  <div className="mx-4 border-t border-black/[0.06] dark:border-white/[0.06]" />
+                  <button
+                    type="button"
+                    onClick={() => { setEditMenuOpen(false); void handleRemoveAvatar(); }}
+                    className="w-full text-left px-4 py-2.5 text-[14px] text-red-500 dark:text-red-400 hover:bg-red-50/80 dark:hover:bg-red-900/20 active:bg-red-100 dark:active:bg-red-900/30 transition-colors"
+                  >
+                    Remove
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { setEditMenuOpen(false); fileInputRef.current?.click(); }}
+                  className="w-full text-left px-4 py-2.5 text-[14px] text-[#1d1d1f] dark:text-[#f5f5f7] hover:bg-black/[0.04] dark:hover:bg-white/[0.04] active:bg-black/[0.07] transition-colors"
+                >
+                  Add photo
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {avatarError && (
+          <p className="text-[12px] text-red-500 text-center max-w-[220px]">{avatarError}</p>
+        )}
+
         <div className="text-center">
-          <p className="text-[22px] font-bold text-[#1c1c1e] dark:text-[#f5f5f7]">{displayName}</p>
+          <p className="text-[22px] font-bold text-[#1d1d1f] dark:text-[#f5f5f7]">{displayName}</p>
           <p className="text-[14px] text-[#8e8e93] mt-0.5">@{user.username}</p>
         </div>
       </div>
@@ -97,7 +209,7 @@ export default function ProfilePage() {
 
         {/* Email verification warning */}
         {showResend && (
-          <div className="flex items-start gap-3 rounded-2xl bg-amber-50 dark:bg-amber-900/10 border border-amber-200/80 dark:border-amber-800/40 px-4 py-3.5">
+          <div className="flex items-start gap-3 rounded-2xl bg-amber-50/90 dark:bg-amber-900/10 border border-amber-200/60 dark:border-amber-700/30 px-4 py-3.5 backdrop-blur-sm">
             <WarningIcon className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
               <p className="text-[14px] font-semibold text-amber-700 dark:text-amber-400">Email not verified</p>
@@ -112,7 +224,7 @@ export default function ProfilePage() {
                 <button
                   onClick={handleResend}
                   disabled={resending}
-                  className="mt-2 text-[12px] font-semibold text-[#007aff] dark:text-[#0a84ff] hover:opacity-80 transition-opacity disabled:opacity-50"
+                  className="mt-2 text-[12px] font-semibold text-[#007aff] dark:text-[#0a84ff] hover:opacity-75 transition-opacity disabled:opacity-50"
                 >
                   {resending ? 'Sending…' : 'Resend verification email'}
                 </button>
@@ -124,15 +236,15 @@ export default function ProfilePage() {
         {/* Account info */}
         <section>
           <SectionLabel>Account</SectionLabel>
-          <div className="rounded-2xl bg-white dark:bg-[#1c1c1e] overflow-hidden divide-y divide-gray-100 dark:divide-[#38383a] shadow-sm dark:shadow-none">
+          <div className="rounded-2xl bg-white/90 dark:bg-[#1c1c24]/90 backdrop-blur-sm overflow-hidden divide-y divide-black/[0.04] dark:divide-white/[0.05] shadow-sm dark:shadow-none border border-black/[0.05] dark:border-white/[0.07]">
             <Row label="Email">
               <div className="flex items-center gap-2 min-w-0">
-                <span className="truncate text-[14px] text-[#1c1c1e] dark:text-[#f5f5f7]">{user.email}</span>
+                <span className="truncate text-[14px] text-[#1d1d1f] dark:text-[#f5f5f7]">{user.email}</span>
                 <VerifiedBadge verified={user.isVerified} />
               </div>
             </Row>
             <Row label="Username">
-              <span className="text-[14px] text-[#1c1c1e] dark:text-[#f5f5f7]">@{user.username}</span>
+              <span className="text-[14px] text-[#1d1d1f] dark:text-[#f5f5f7]">@{user.username}</span>
             </Row>
             <Row label="User ID">
               <span className="text-[11px] font-mono text-[#8e8e93] truncate max-w-[160px]">{user.id}</span>
@@ -143,13 +255,13 @@ export default function ProfilePage() {
         {/* Connected providers */}
         <section>
           <SectionLabel>Connected accounts</SectionLabel>
-          <div className="rounded-2xl bg-white dark:bg-[#1c1c1e] overflow-hidden divide-y divide-gray-100 dark:divide-[#38383a] shadow-sm dark:shadow-none">
+          <div className="rounded-2xl bg-white/90 dark:bg-[#1c1c24]/90 backdrop-blur-sm overflow-hidden divide-y divide-black/[0.04] dark:divide-white/[0.05] shadow-sm dark:shadow-none border border-black/[0.05] dark:border-white/[0.07]">
             {ALL_PROVIDERS.map((p) => {
               const connected = providers.includes(p);
               return (
                 <div key={p} className="flex items-center gap-3 px-4 py-3.5">
                   <span className="flex-shrink-0 w-7 h-7 flex items-center justify-center">{PROVIDER_ICONS[p]}</span>
-                  <span className="flex-1 text-[14px] text-[#1c1c1e] dark:text-[#f5f5f7]">
+                  <span className="flex-1 text-[14px] text-[#1d1d1f] dark:text-[#f5f5f7]">
                     {PROVIDER_LABELS[p]}
                   </span>
                   {connected ? (
@@ -158,7 +270,7 @@ export default function ProfilePage() {
                       Connected
                     </span>
                   ) : (
-                    <span className="text-[12px] text-[#c7c7cc] dark:text-[#636366]">Not connected</span>
+                    <span className="text-[12px] text-[#c7c7cc] dark:text-[#3c3c44]">Not connected</span>
                   )}
                 </div>
               );
@@ -169,7 +281,7 @@ export default function ProfilePage() {
         {/* Logout */}
         <button
           onClick={handleLogout}
-          className="w-full flex items-center justify-center gap-2 rounded-2xl bg-white dark:bg-[#1c1c1e] border border-red-200/80 dark:border-red-900/30 hover:bg-red-50 dark:hover:bg-red-900/10 px-4 py-3.5 text-[15px] font-semibold text-red-500 dark:text-red-400 transition-colors shadow-sm dark:shadow-none"
+          className="w-full flex items-center justify-center gap-2 rounded-2xl bg-white/90 dark:bg-[#1c1c24]/90 backdrop-blur-sm border border-red-200/60 dark:border-red-800/30 hover:bg-red-50/90 dark:hover:bg-red-900/10 px-4 py-3.5 text-[15px] font-semibold text-red-500 dark:text-red-400 transition-all duration-150 shadow-sm dark:shadow-none"
         >
           <LogoutIcon />
           Sign Out
@@ -184,7 +296,7 @@ export default function ProfilePage() {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[11px] font-semibold text-[#8e8e93] uppercase tracking-wider px-4 mb-2">
+    <p className="text-[11px] font-semibold text-[#8e8e93] uppercase tracking-wider px-1 mb-2">
       {children}
     </p>
   );
@@ -202,14 +314,14 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 function VerifiedBadge({ verified }: { verified: boolean }) {
   if (verified) {
     return (
-      <span className="flex-shrink-0 inline-flex items-center gap-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 rounded-full px-2 py-0.5">
+      <span className="flex-shrink-0 inline-flex items-center gap-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200/60 dark:border-emerald-700/30 rounded-full px-2 py-0.5">
         <CheckCircleIcon className="w-3 h-3" />
         Verified
       </span>
     );
   }
   return (
-    <span className="flex-shrink-0 inline-flex items-center gap-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-full px-2 py-0.5">
+    <span className="flex-shrink-0 inline-flex items-center gap-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200/60 dark:border-amber-700/30 rounded-full px-2 py-0.5">
       <WarningIcon className="w-3 h-3" />
       Unverified
     </span>
@@ -270,12 +382,12 @@ const PROVIDER_ICONS: Record<string, React.ReactNode> = {
     </svg>
   ),
   github: (
-    <svg viewBox="0 0 20 20" className="w-5 h-5 text-[#1c1c1e] dark:text-[#f5f5f7] fill-current" aria-hidden="true">
+    <svg viewBox="0 0 20 20" className="w-5 h-5 text-[#1d1d1f] dark:text-[#f5f5f7] fill-current" aria-hidden="true">
       <path d="M10 1.5a8.5 8.5 0 0 0-2.686 16.567c.425.078.58-.184.58-.41 0-.2-.007-.733-.011-1.44-2.364.514-2.863-1.139-2.863-1.139-.387-.983-.945-1.245-.945-1.245-.772-.527.058-.517.058-.517.854.06 1.303.877 1.303.877.758 1.298 1.99.923 2.474.706.077-.549.297-.923.54-1.135-1.888-.215-3.872-.944-3.872-4.203 0-.929.331-1.689.875-2.284-.088-.214-.38-1.08.083-2.25 0 0 .714-.228 2.34.872A8.155 8.155 0 0 1 10 6.84c.723.003 1.45.098 2.13.287 1.624-1.1 2.337-.872 2.337-.872.465 1.17.172 2.036.085 2.25.545.595.874 1.355.874 2.284 0 3.267-1.987 3.986-3.881 4.197.305.262.577.781.577 1.574 0 1.137-.01 2.054-.01 2.333 0 .228.153.492.584.409A8.5 8.5 0 0 0 10 1.5z" />
     </svg>
   ),
   apple: (
-    <svg viewBox="0 0 20 20" className="w-5 h-5 text-[#1c1c1e] dark:text-[#f5f5f7] fill-current" aria-hidden="true">
+    <svg viewBox="0 0 20 20" className="w-5 h-5 text-[#1d1d1f] dark:text-[#f5f5f7] fill-current" aria-hidden="true">
       <path d="M14.25 1c.18 1.07-.3 2.14-.96 2.9-.68.8-1.77 1.42-2.85 1.34-.21-1.04.37-2.13 1-2.85C12.12 1.6 13.2.98 14.25 1zm2.62 4.74c-1.23-.74-2.62-.7-3.37-.7-.77 0-2.08.68-3.1.68-.96 0-2.14-.65-3.36-.65C4.97 5.07 2.5 7.04 2.5 10.67c0 4.38 3.34 9.33 5.26 9.33.94 0 1.68-.64 2.76-.64 1.1 0 1.68.65 2.82.65 2.06 0 5.16-4.72 5.16-8.6 0-.04-2.17-1.19-2.17-3.67 0-2.17 1.6-3.1 1.64-3.1z" />
     </svg>
   ),

@@ -6,6 +6,7 @@ import { useAuthStore } from '../../store/auth.store';
 import { useChatStore } from '../../store/chat.store';
 import { SidebarProvider, useSidebar } from '../../lib/sidebar-context';
 import { ChatSidebar } from '../../components/ChatSidebar';
+import { IconRail } from '../../components/IconRail';
 import { requestNotificationPermission } from '../../lib/notification';
 
 function ChatsShell({ children }: { children: React.ReactNode }) {
@@ -34,28 +35,33 @@ function ChatsShell({ children }: { children: React.ReactNode }) {
     initializedForUser.current = session.userId;
     initWsHandler();
     loadChats();
-    // Ask for notification permission once per session after the user is signed in.
     requestNotificationPermission();
   }, [hydrated, session, initWsHandler, loadChats]);
 
   if (!hydrated || !session) return null;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#f5f5f7] dark:bg-black">
-      {/* Sidebar: full-width on mobile when open, fixed-width on desktop */}
+    <div className="flex h-screen overflow-hidden bg-[#f2f2f7] dark:bg-[#0c0c12] md:p-3 md:gap-3">
+
+      {/* ── Icon rail: desktop only ── */}
+      <div className="hidden md:flex flex-col w-[68px] flex-shrink-0 bg-white/[0.82] dark:bg-[#1c1c24]/[0.88] backdrop-blur-2xl rounded-2xl shadow-sm dark:shadow-none border border-black/[0.06] dark:border-white/[0.07] overflow-hidden">
+        <IconRail />
+      </div>
+
+      {/* ── Chat sidebar ── */}
       <div
         className={`${
           open ? 'flex' : 'hidden'
-        } md:flex flex-col w-full md:w-72 flex-shrink-0`}
+        } md:flex flex-col w-full md:w-[300px] flex-shrink-0 bg-white/[0.82] dark:bg-[#1c1c24]/[0.88] backdrop-blur-2xl md:rounded-2xl overflow-hidden md:shadow-sm dark:shadow-none md:border md:border-black/[0.06] md:dark:border-white/[0.07]`}
       >
         <ChatSidebar />
       </div>
 
-      {/* Main: hidden on mobile when sidebar is open */}
+      {/* ── Main panel ── */}
       <main
         className={`${
           open ? 'hidden' : 'flex'
-        } md:flex flex-1 flex-col overflow-hidden`}
+        } md:flex flex-1 flex-col overflow-hidden bg-white/[0.82] dark:bg-[#1c1c24]/[0.88] backdrop-blur-2xl md:rounded-2xl md:shadow-sm dark:shadow-none md:border md:border-black/[0.06] md:dark:border-white/[0.07]`}
       >
         {children}
       </main>

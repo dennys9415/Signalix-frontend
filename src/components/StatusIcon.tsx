@@ -2,13 +2,13 @@ import { MessageLifecycleState } from '@signalix/contracts';
 
 interface Props {
   state: string;
-  light?: boolean; // true when rendered inside a colored (blue) bubble
+  light?: boolean;
 }
 
 export function StatusIcon({ state, light = false }: Props) {
   const c = light
-    ? { read: 'text-white', tick: 'text-white/70', clock: 'text-white/50' }
-    : { read: 'text-[#007aff] dark:text-[#0a84ff]', tick: 'text-gray-400 dark:text-[#636366]', clock: 'text-gray-300 dark:text-[#48484a]' };
+    ? { read: 'text-white/80', tick: 'text-white/50', clock: 'text-white/30' }
+    : { read: 'text-[#007aff] dark:text-white/70', tick: 'text-[#aeaeb2] dark:text-white/40', clock: 'text-[#c7c7cc] dark:text-white/20' };
 
   if (state === MessageLifecycleState.READ) {
     return <span title="Read" className={`inline-flex ${c.read}`}><DoubleCheckIcon /></span>;
