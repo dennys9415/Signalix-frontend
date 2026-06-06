@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useRef, useState } from 'react';
+import type React from 'react';
 import { MessageType } from '@signalix/contracts';
 import { uploadMedia, uploadFile } from '../lib/api-client';
 
@@ -20,6 +21,7 @@ interface Props {
   disabled?: boolean;
   onTypingStart?: () => void;
   onTypingStop?: () => void;
+  scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 type PendingAttachment =
@@ -43,7 +45,7 @@ function getReplyPreview(ciphertext: string, messageType?: MessageType): string 
   return ciphertext;
 }
 
-export function MessageInput({ onSend, replyingTo, onCancelReply, disabled, onTypingStart, onTypingStop }: Props) {
+export function MessageInput({ onSend, replyingTo, onCancelReply, disabled, onTypingStart, onTypingStop, scrollContainerRef }: Props) {
   const [text, setText] = useState('');
   const [attachment, setAttachment] = useState<PendingAttachment | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -157,12 +159,35 @@ export function MessageInput({ onSend, replyingTo, onCancelReply, disabled, onTy
     setUploadError(null);
   }
 
+  // Opens a hidden file input without letting the browser scroll or shift the
+  // layout. Saves the message-list scrollTop and the currently focused element
+  // before the OS dialog opens, then restores both in the next animation frame
+  // (which fires after the dialog closes on blocking browsers, or immediately
+  // on non-blocking ones — either way undoes any browser-triggered scroll).
+  function openPicker(inputRef: React.RefObject<HTMLInputElement | null>) {
+    const container = scrollContainerRef?.current ?? null;
+    const savedScrollTop = container?.scrollTop ?? 0;
+    const prevFocus = document.activeElement as HTMLElement | null;
+
+    inputRef.current?.click();
+
+    requestAnimationFrame(() => {
+      if (container) container.scrollTop = savedScrollTop;
+      if (prevFocus && prevFocus !== inputRef.current && document.contains(prevFocus)) {
+        prevFocus.focus({ preventScroll: true });
+      }
+    });
+  }
+
   const canSend = !disabled && !uploading && (
     (attachment !== null) || text.trim().length > 0
   );
 
   return (
-    <div className="flex-shrink-0 border-t border-black/[0.06] dark:border-white/[0.07] bg-white/90 dark:bg-[#1c1c24]/90 backdrop-blur-xl">
+    <div
+      className="flex-shrink-0 border-t border-black/[0.06] dark:border-white/[0.07] bg-white/90 dark:bg-[#1c1c24]/90 backdrop-blur-xl"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+    >
       {/* Reply preview banner */}
       {replyingTo && (
         <div className="flex items-center gap-2 px-4 pt-2.5 pb-1">
@@ -233,19 +258,27 @@ export function MessageInput({ onSend, replyingTo, onCancelReply, disabled, onTy
         </div>
       )}
 
-      {/* Hidden file inputs */}
+      {/* Hidden file inputs. position:fixed moves them out of layout flow.
+          top/left at -9999px ensures that even if the browser briefly tries to
+          scroll to the focused element, it scrolls to a point that is
+          unreachable and has no visible effect. 1px size (not 0) avoids
+          browser bugs that suppress .click() on truly zero-size inputs. */}
       <input
         ref={imageInputRef}
         type="file"
         accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
-        className="hidden"
+        tabIndex={-1}
+        aria-hidden="true"
+        style={{ position: 'fixed', top: '-9999px', left: '-9999px', width: '1px', height: '1px', opacity: 0, overflow: 'hidden', pointerEvents: 'none' }}
         onChange={handleImageChange}
       />
       <input
         ref={fileInputRef}
         type="file"
         accept={FILE_EXTENSIONS}
-        className="hidden"
+        tabIndex={-1}
+        aria-hidden="true"
+        style={{ position: 'fixed', top: '-9999px', left: '-9999px', width: '1px', height: '1px', opacity: 0, overflow: 'hidden', pointerEvents: 'none' }}
         onChange={handleFileChange}
       />
 
@@ -257,7 +290,7 @@ export function MessageInput({ onSend, replyingTo, onCancelReply, disabled, onTy
         {/* Image attach button */}
         <button
           type="button"
-          onClick={() => imageInputRef.current?.click()}
+          onClick={() => openPicker(imageInputRef)}
           disabled={disabled || uploading}
           aria-label="Attach image"
           title="Attach image"
@@ -269,7 +302,7 @@ export function MessageInput({ onSend, replyingTo, onCancelReply, disabled, onTy
         {/* File attach button */}
         <button
           type="button"
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => openPicker(fileInputRef)}
           disabled={disabled || uploading}
           aria-label="Attach file"
           title="Attach file (pdf, docx, xlsx, pptx, txt, csv, zip)"

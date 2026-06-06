@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { MessageType, type ChatDTO, type LinkPreviewDTO, type MessageDTO } from '@signalix/contracts';
+import { ChatType, MessageType, type ChatDTO, type LinkPreviewDTO, type MessageDTO } from '@signalix/contracts';
 import { useChatStore, type TempMessage, type StoredMessage } from '../store/chat.store';
 import { useAuthStore } from '../store/auth.store';
 import { downloadFileAttachment } from '../lib/api-client';
@@ -14,6 +14,7 @@ import { PresenceIndicator } from './PresenceIndicator';
 import { StatusIcon } from './StatusIcon';
 import { MessageInput } from './MessageInput';
 import { ContactProfileModal } from './ContactProfileModal';
+import { GroupInfoModal } from './GroupInfoModal';
 
 const EMPTY_MESSAGES: StoredMessage[] = [];
 const EMPTY_TYPING: string[] = [];
@@ -70,11 +71,15 @@ interface ForwardModalProps {
 function ForwardModal({ ciphertext, chats, currentUserId, onForward, onClose }: ForwardModalProps) {
   const [query, setQuery] = useState('');
 
-  const filtered = chats.filter((c) => {
+  function getChatName(c: ChatDTO) {
+    if (c.type === ChatType.GROUP) return c.title ?? 'Group';
     const other = c.participants.find((p) => p.userId !== currentUserId);
-    const name = other?.user?.displayName ?? other?.user?.username ?? '';
-    return name.toLowerCase().includes(query.toLowerCase());
-  });
+    return other?.user?.displayName ?? other?.user?.username ?? 'Unknown';
+  }
+
+  const filtered = chats.filter((c) =>
+    getChatName(c).toLowerCase().includes(query.toLowerCase()),
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
@@ -102,10 +107,11 @@ function ForwardModal({ ciphertext, chats, currentUserId, onForward, onClose }: 
             <p className="text-center text-[13px] text-[#8e8e93] py-6">No conversations found.</p>
           )}
           {filtered.map((c) => {
-            const other = c.participants.find((p) => p.userId !== currentUserId);
-            const name = other?.user?.displayName ?? other?.user?.username ?? 'Unknown';
-            const seed = other?.userId ?? c.id;
-            const avatarUrl = other?.user?.avatarUrl ?? null;
+            const isGroup = c.type === ChatType.GROUP;
+            const name = getChatName(c);
+            const other = isGroup ? undefined : c.participants.find((p) => p.userId !== currentUserId);
+            const seed = isGroup ? c.id : (other?.userId ?? c.id);
+            const avatarUrl = isGroup ? undefined : (other?.user?.avatarUrl ?? null);
             return (
               <button
                 key={c.id}
@@ -129,12 +135,13 @@ interface BubbleProps {
   m: MessageDTO | TempMessage;
   currentUserId: string;
   chatId: string;
+  isGroup: boolean;
   getSenderName: (userId: string) => string;
   onReply: (m: MessageDTO) => void;
   onForward: (m: MessageDTO) => void;
 }
 
-function MessageBubble({ m, currentUserId, chatId, getSenderName, onReply, onForward }: BubbleProps) {
+function MessageBubble({ m, currentUserId, chatId, isGroup, getSenderName, onReply, onForward }: BubbleProps) {
   const deleteMessageForMe = useChatStore((s) => s.deleteMessageForMe);
   const deleteMessageForEveryone = useChatStore((s) => s.deleteMessageForEveryone);
   const editMessage = useChatStore((s) => s.editMessage);
@@ -335,15 +342,23 @@ function MessageBubble({ m, currentUserId, chatId, getSenderName, onReply, onFor
     : 'text-[#1d1d1f] dark:text-[#f5f5f7]';
 
   return (
-    <div ref={rowRef} className={`group flex items-end gap-1.5 ${isMine ? 'justify-end' : 'justify-start'}`}>
+    <div ref={rowRef} className={`group flex items-end gap-1.5 w-full ${isMine ? 'justify-end' : 'justify-start'}`}>
       {!isMine && actionColumn}
 
-      <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'}`}>
-        <div className="relative">
+      {/* max-w percentages resolve against the row (w-full) so they're always
+          relative to the actual panel width, not fixed pixels that can overflow
+          narrow windows. min-w-0 lets the column shrink below its content size. */}
+      <div className={`flex flex-col min-w-0 max-w-[82%] sm:max-w-[65%] ${isMine ? 'items-end' : 'items-start'}`}>
+        {isGroup && !isMine && !isDeletedForEveryone && 'senderId' in m && (
+          <p className="text-[11px] font-semibold text-[#007aff] dark:text-[#0a84ff] mb-0.5 ml-1 max-w-full truncate">
+            {getSenderName(m.senderId)}
+          </p>
+        )}
+        <div className="relative min-w-0">
           {reactPopover}
 
           <div
-            className={`max-w-[72%] sm:max-w-sm lg:max-w-md rounded-2xl ${(isImage || isFile) ? 'overflow-hidden' : 'px-3.5 py-2.5'} ${bubbleClass} ${textClass} ${(isPending || deleting || deletingForEveryone) && !isDeletedForEveryone ? 'opacity-55' : ''}`}
+            className={`rounded-2xl ${(isImage || isFile) ? 'overflow-hidden' : 'px-3.5 py-2.5'} ${bubbleClass} ${textClass} ${(isPending || deleting || deletingForEveryone) && !isDeletedForEveryone ? 'opacity-55' : ''}`}
           >
             {isDeletedForEveryone ? (
               <div>
@@ -405,7 +420,7 @@ function MessageBubble({ m, currentUserId, chatId, getSenderName, onReply, onFor
                   <FileCard fileInfo={parseFileInfo(text)} time={time} isMine={isMine} state={state} messageId={messageId} />
                 ) : (
                   <>
-                    <p className="text-[15px] leading-relaxed break-words whitespace-pre-wrap">{text}</p>
+                    <p className="text-[15px] leading-relaxed break-words whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</p>
                     {'linkPreview' in m && m.linkPreview && m.linkPreview.title && (
                       <LinkPreviewCard preview={m.linkPreview as LinkPreviewDTO} />
                     )}
@@ -483,6 +498,7 @@ export function MessageView({ chat }: Props) {
   const loadMessages = useChatStore((s) => s.loadMessages);
   const markRead = useChatStore((s) => s.markRead);
   const deleteChatForMe = useChatStore((s) => s.deleteChatForMe);
+  const removeDraftChat = useChatStore((s) => s.removeDraftChat);
   const typingUserIds = useChatStore((s) => s.typing[chat.id] ?? EMPTY_TYPING);
   // Compute other-participant ID from prop+session so we can use it in the selector below.
   const _otherUserId = chat.participants.find((p) => p.userId !== (session?.userId ?? ''))?.userId;
@@ -497,17 +513,22 @@ export function MessageView({ chat }: Props) {
   const [forwardingMessage, setForwardingMessage] = useState<MessageDTO | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const setActiveChatId = useChatStore((s) => s.setActiveChatId);
   const markChatRead = useChatStore((s) => s.markChatRead);
 
   const currentUserId = session?.userId ?? '';
-  const other = getOtherParticipant(chat, currentUserId);
-  const otherName = other?.user?.displayName ?? other?.user?.username ?? 'Unknown';
+  const isDraft = chat.id.startsWith('draft:');
+  const isGroup = chat.type === ChatType.GROUP;
+  const other = isGroup ? undefined : getOtherParticipant(chat, currentUserId);
+  const otherName = isGroup
+    ? (chat.title ?? 'Group')
+    : (other?.user?.displayName ?? other?.user?.username ?? 'Unknown');
   const otherUsername = other?.user?.username ?? '';
-  const otherSeed = other?.userId ?? chat.id;
-  const otherAvatarUrl = other?.user?.avatarUrl;
-  const isOnline = other ? (presence[other.userId] ?? 'offline') === 'online' : false;
+  const otherSeed = isGroup ? chat.id : (other?.userId ?? chat.id);
+  const otherAvatarUrl = isGroup ? undefined : other?.user?.avatarUrl;
+  const isOnline = !isGroup && other ? (presence[other.userId] ?? 'offline') === 'online' : false;
 
   function getSenderName(userId: string): string {
     if (userId === currentUserId) return 'You';
@@ -557,12 +578,19 @@ export function MessageView({ chat }: Props) {
   }
 
   function handleSend(text: string, replyToMessageId?: string, messageType?: MessageType) {
-    sendMessage({ chatId: chat.id, ciphertext: text, replyToMessageId, messageType });
+    if (isDraft) {
+      const recipientUsername = other?.user?.username;
+      if (!recipientUsername) return;
+      sendMessage({ chatId: chat.id, recipientUsername, ciphertext: text, replyToMessageId, messageType });
+    } else {
+      sendMessage({ chatId: chat.id, ciphertext: text, replyToMessageId, messageType });
+    }
     setReplyingTo(null);
   }
 
-  function handleTypingStart() { wsClient.sendTypingStart({ chatId: chat.id }); }
-  function handleTypingStop() { wsClient.sendTypingStop({ chatId: chat.id }); }
+  // Draft chats have no real chatId yet — suppress typing WS events.
+  function handleTypingStart() { if (!isDraft) wsClient.sendTypingStart({ chatId: chat.id }); }
+  function handleTypingStop() { if (!isDraft) wsClient.sendTypingStop({ chatId: chat.id }); }
 
   // Resolve typing user IDs to display names (exclude self, just in case)
   const typingLabel = typingUserIds
@@ -589,13 +617,19 @@ export function MessageView({ chat }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
 
       {/* ── Header ── */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-black/[0.06] dark:border-white/[0.07] bg-white/90 dark:bg-[#1c1c24]/90 backdrop-blur-xl flex-shrink-0">
+      <div className="relative z-20 flex items-center gap-3 px-4 py-3 border-b border-black/[0.06] dark:border-white/[0.07] bg-white/90 dark:bg-[#1c1c24]/90 backdrop-blur-xl flex-shrink-0">
         {/* Mobile back */}
         <button
-          onClick={() => { setOpen(true); router.push('/chats'); }}
+          onClick={() => {
+            // Explicitly remove the draft on back so the sidebar item disappears
+            // immediately rather than waiting for the deferred cleanup timer.
+            if (isDraft) removeDraftChat(chat.id);
+            setOpen(true);
+            router.replace('/chats');
+          }}
           className="md:hidden flex items-center justify-center w-8 h-8 -ml-1 rounded-xl text-[#007aff] dark:text-[#0a84ff] hover:bg-[#007aff]/[0.08] transition-colors"
           aria-label="Back"
         >
@@ -606,19 +640,23 @@ export function MessageView({ chat }: Props) {
 
         <div className="flex-1 min-w-0">
           <p className="text-[15px] font-semibold text-[#1d1d1f] dark:text-[#f5f5f7] truncate">{otherName}</p>
-          <div className="flex items-center gap-1.5">
-            <PresenceIndicator online={isOnline} size="sm" />
-            <p className={`text-[12px] font-medium ${isOnline ? 'text-emerald-500' : 'text-[#8e8e93] dark:text-[#636375]'}`}>
-              {isOnline ? 'Online' : formatLastSeen(otherLastSeen)}
-            </p>
-          </div>
+          {isGroup ? (
+            <p className="text-[12px] text-[#8e8e93] dark:text-[#636375]">{chat.participants.length} members</p>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <PresenceIndicator online={isOnline} size="sm" />
+              <p className={`text-[12px] font-medium ${isOnline ? 'text-emerald-500' : 'text-[#8e8e93] dark:text-[#636375]'}`}>
+                {isOnline ? 'Online' : formatLastSeen(otherLastSeen)}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Header action icons */}
         <div className="flex items-center gap-0.5">
           <button
             onClick={() => setProfileOpen(true)}
-            title="View profile"
+            title={isGroup ? 'Group info' : 'View profile'}
             className="w-8 h-8 flex items-center justify-center rounded-xl text-[#8e8e93] dark:text-[#636375] hover:bg-black/[0.05] dark:hover:bg-white/[0.05] hover:text-[#007aff] dark:hover:text-[#0a84ff] transition-all duration-150"
           >
             <UserCircleIcon />
@@ -642,31 +680,35 @@ export function MessageView({ chat }: Props) {
             </button>
 
             {menuOpen && (
-              <div className="absolute right-0 top-full mt-1.5 w-52 rounded-2xl shadow-xl bg-white/95 dark:bg-[#1c1c24]/95 backdrop-blur-xl border border-black/[0.07] dark:border-white/[0.07] z-50 overflow-hidden py-1">
+              <div className="absolute right-0 top-full mt-1.5 w-52 rounded-2xl shadow-xl bg-white/95 dark:bg-[#1c1c24]/95 backdrop-blur-xl border border-black/[0.07] dark:border-white/[0.07] z-[200] overflow-hidden py-1">
                 <button
                   className="w-full flex items-center gap-3 px-4 py-2.5 text-[14px] text-[#1d1d1f] dark:text-[#f5f5f7] hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors text-left"
                   onClick={() => { setMenuOpen(false); setProfileOpen(true); }}
                 >
                   <UserCircleIcon />
-                  <span>View Profile</span>
+                  <span>{isGroup ? 'Group Info' : 'View Profile'}</span>
                 </button>
                 <div className="my-1 border-t border-black/[0.06] dark:border-white/[0.06]" />
-                <button
-                  onClick={() => void handleDeleteChat()}
-                  disabled={deletingChat}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-[14px] text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40 transition-colors text-left"
-                >
-                  <TrashOutlineIcon />
-                  <span>{deletingChat ? 'Deleting…' : 'Delete Chat'}</span>
-                </button>
-                <button
-                  disabled
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-[14px] text-[#c7c7cc] dark:text-[#3c3c44] cursor-not-allowed text-left"
-                >
-                  <BlockIcon />
-                  <span>Block User</span>
-                  <span className="ml-auto text-[10px] text-[#c7c7cc] dark:text-[#3c3c44]">soon</span>
-                </button>
+                {!isGroup && (
+                  <button
+                    onClick={() => void handleDeleteChat()}
+                    disabled={deletingChat}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-[14px] text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40 transition-colors text-left"
+                  >
+                    <TrashOutlineIcon />
+                    <span>{deletingChat ? 'Deleting…' : 'Delete Chat'}</span>
+                  </button>
+                )}
+                {!isGroup && (
+                  <button
+                    disabled
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-[14px] text-[#c7c7cc] dark:text-[#3c3c44] cursor-not-allowed text-left"
+                  >
+                    <BlockIcon />
+                    <span>Block User</span>
+                    <span className="ml-auto text-[10px] text-[#c7c7cc] dark:text-[#3c3c44]">soon</span>
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -674,13 +716,16 @@ export function MessageView({ chat }: Props) {
       </div>
 
       {/* ── Message list ── */}
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-2.5 bg-transparent">
+      <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 py-6 space-y-2.5 bg-transparent">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center select-none">
             <Avatar name={otherName} seed={otherSeed} avatarUrl={otherAvatarUrl} size="xl" />
             <div>
               <p className="text-[16px] font-semibold text-[#1d1d1f] dark:text-[#f5f5f7]">{otherName}</p>
-              {otherUsername && <p className="text-[13px] text-[#8e8e93] mt-0.5">@{otherUsername}</p>}
+              {isGroup
+                ? <p className="text-[13px] text-[#8e8e93] mt-0.5">{chat.participants.length} members</p>
+                : otherUsername && <p className="text-[13px] text-[#8e8e93] mt-0.5">@{otherUsername}</p>
+              }
             </div>
             <p className="text-[13px] text-[#aeaeb2] dark:text-[#636375] mt-1">Start the conversation.</p>
           </div>
@@ -691,6 +736,7 @@ export function MessageView({ chat }: Props) {
             m={m}
             currentUserId={currentUserId}
             chatId={chat.id}
+            isGroup={isGroup}
             getSenderName={getSenderName}
             onReply={handleReply}
             onForward={handleForward}
@@ -711,9 +757,10 @@ export function MessageView({ chat }: Props) {
         onCancelReply={() => setReplyingTo(null)}
         onTypingStart={handleTypingStart}
         onTypingStop={handleTypingStop}
+        scrollContainerRef={listRef}
       />
 
-      {profileOpen && other && (
+      {profileOpen && !isGroup && other && (
         <ContactProfileModal
           userId={other.userId}
           displayName={otherName}
@@ -722,6 +769,19 @@ export function MessageView({ chat }: Props) {
           isOnline={isOnline}
           lastSeenAt={otherLastSeen}
           onClose={() => setProfileOpen(false)}
+        />
+      )}
+
+      {profileOpen && isGroup && (
+        <GroupInfoModal
+          chat={chat}
+          currentUserId={currentUserId}
+          onClose={() => setProfileOpen(false)}
+          onLeave={() => {
+            setProfileOpen(false);
+            setOpen(true);
+            router.push('/chats');
+          }}
         />
       )}
 
@@ -810,8 +870,8 @@ function UserCircleIcon() {
 function SearchIcon() {
   return (
     <svg viewBox="0 0 20 20" className="w-4 h-4 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="9" cy="9" r="6" />
-      <line x1="13.5" y1="13.5" x2="18" y2="18" />
+      <circle cx="9" cy="9" r="5.5" />
+      <path d="m13 13 3.5 3.5" />
     </svg>
   );
 }

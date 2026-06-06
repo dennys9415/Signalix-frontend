@@ -10,6 +10,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className="dark">
       <head>
+        {/* viewport-fit=cover lets env(safe-area-inset-*) work on iOS notch/home-bar */}
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         {/* Apply stored theme before first paint to prevent flash */}
         <script
           dangerouslySetInnerHTML={{

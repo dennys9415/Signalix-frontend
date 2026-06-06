@@ -1,8 +1,8 @@
 # Signalix Frontend
 
-**Version: v0.2.0**
+**Version: v0.5.0**
 
-Next.js 15 chat client for Signalix. Provides authentication (local + OAuth), real-time messaging, presence, and user profile management.
+Next.js 15 chat client for Signalix. Direct + group chats, text / image / file messages, reactions, replies, forwards, edit, delete-for-me / for-everyone, link previews, typing indicators, presence, avatar upload, draft chat UX, and the full auth stack (local + Google / GitHub / Apple OAuth).
 
 ## Stack
 
@@ -79,12 +79,14 @@ npm run build   # outputs to .next/
 2. **Register** a new account at `/register` (email + username + password).
 3. **Or sign in with** Google, GitHub, or Apple via the OAuth buttons on the login page.
 4. After login you land on `/chats`.
-5. **Search for a user** by typing in the sidebar search bar (partial username match).
-6. Click a found user to open a conversation or select an existing chat.
-7. Messages are sent over WebSocket. Delivery and read receipts update in real time.
-8. **Profile** — click the gear icon in the sidebar or navigate to `/settings/profile`.
-9. **Forgot password** — click "Forgot password?" on the login page.
-10. **Verify email** — check your inbox after registration; click the link to `/verify-email?token=…`.
+5. **Search for a user** in the sidebar (partial username match). Clicking a result opens a **temporary draft chat** (`draft:<userId>`) right away — no DB entry is created. Sending the first message creates the real chat and replaces the draft in place.
+6. **Create a group chat** via the group icon in the sidebar header. Add members, rename, leave, or remove members from the group info modal.
+7. Messages support **text, images, and file attachments** (paperclip menu in the composer). Each message exposes hover actions for **reply, forward, react, copy, edit (own), delete-for-me, and delete-for-everyone (own)**.
+8. Pasting a URL fetches a **link preview** server-side and embeds it in the bubble.
+9. **Typing indicators** appear above the composer when the other side is typing.
+10. **Profile** — click your avatar in the sidebar or navigate to `/settings/profile`. Upload or remove your avatar from there.
+11. **Forgot password** — click "Forgot password?" on the login page.
+12. **Verify email** — check your inbox after registration; click the link to `/verify-email?token=…`.
 
 ## App routes
 
@@ -97,21 +99,25 @@ npm run build   # outputs to .next/
 | `/reset-password` | Reset password via emailed token |
 | `/oauth/callback` | Handles OAuth redirect from API; stores session, redirects to `/chats` |
 | `/verify-email` | Verifies email token from link; shows success or error state |
-| `/chats` | Empty-state / new conversation composer |
-| `/chats/[chatId]` | Message view for a specific chat |
-| `/settings/profile` | Read-only profile: avatar, display name, email, user ID, connected providers, verification status, logout |
+| `/chats` | Inbox hub — empty state, or `MessageView` for the active draft chat |
+| `/chats/[chatId]` | Message view for a specific real chat (direct or group). Draft IDs are redirected back to `/chats` immediately. |
+| `/settings/profile` | Profile: avatar upload / remove, display name, email, user ID, connected providers, verification status, logout |
 
 ## Project structure
 
 ```
 src/
   lib/
-    api-client.ts         # Typed REST calls; auto-refresh on 401
+    api-client.ts         # Typed REST calls (auth, chats, messages, files, media, profile); auto-refresh on 401
     token-storage.ts      # localStorage session persistence
     ws-client.ts          # WebSocket singleton; auto-reconnect after 3 s
+    sidebar-context.tsx   # Mobile two-pane sidebar open/close state
+    avatar.ts             # Display name + timestamp formatting helpers
+    presence.ts           # formatLastSeen() helper
+    notification.ts       # Browser notification + sound
   store/
-    auth.store.ts         # Zustand: session, login, register, loginWithOAuth, logout
-    chat.store.ts         # Zustand: chats, messages, presence, WS event handler
+    auth.store.ts         # Zustand: session, login, register, loginWithOAuth, logout, WS lifecycle
+    chat.store.ts         # Zustand: chats, messages, presence, currentDraft, pendingChatId, WS event handler, groups, reactions, edit, delete
   app/
     layout.tsx            # Root HTML layout + Tailwind globals
     page.tsx              # Auth-aware redirect
@@ -123,17 +129,22 @@ src/
     verify-email/         # Email verification (reads ?token)
     chats/
       layout.tsx          # Auth guard + WS lifecycle + two-pane shell
-      page.tsx            # Empty state / new conversation composer
-      [chatId]/page.tsx   # Message view for a specific chat
+      page.tsx            # Inbox hub: renders MessageView when currentDraft is active, otherwise empty state
+      [chatId]/page.tsx   # Message view for a real chat; redirects draft IDs back to /chats
     settings/
-      profile/page.tsx    # User profile page
+      profile/page.tsx    # Profile page with avatar upload
   components/
-    ChatSidebar.tsx       # Profile strip, chat list, user search
-    ChatItem.tsx          # Single chat row (display name + @username + presence dot)
-    MessageView.tsx       # Message list, header, scroll, auto read-mark, delete-for-me
-    MessageInput.tsx      # Textarea + send button (Enter to send)
+    ChatSidebar.tsx       # Profile strip, chat list, user search, draft handling, new-group button
+    ChatItem.tsx          # Single chat row; renders <button> for drafts, <Link> for real chats
+    MessageView.tsx       # Header, message list, reply / forward / react / edit / delete menus, draft input wiring
+    MessageInput.tsx      # Textarea + paperclip (image / file) + send (Enter to send)
+    GroupCreateModal.tsx  # Create a new group chat
+    GroupInfoModal.tsx    # Group title, members, add / remove, leave
+    ContactProfileModal.tsx # Direct chat partner profile
+    Avatar.tsx            # Initials avatar with optional URL
     StatusIcon.tsx        # ○ / ✓ / ✓✓ / ✓✓(blue) for message state
     PresenceIndicator.tsx # Green / grey dot
+    IconRail.tsx          # Desktop left rail (chats / settings)
 ```
 
 ## Docker
@@ -151,39 +162,45 @@ docker build \
 
 Use `Signalix-infra` Docker Compose for local development — build args are already configured there.
 
-## v0.2.0 changelog
+## v0.5.0 changelog
 
-### Added
-- **Google, GitHub, Apple OAuth** — buttons on `/login`; `/oauth/callback` page handles the redirect from the API
-- **Password reset** — `/forgot-password` and `/reset-password` pages
-- **Email verification** — `/verify-email` page (success / error states); profile page shows verified / unverified badge; resend button for local-auth users
-- **Partial username search** — sidebar search now uses `GET /users/search` for contains-match results
-- **Delete for me** — trash icon on hover in message bubbles; filtered from local state on confirm
-- **Profile page** — `/settings/profile`: initials avatar, display name, @username, email, user ID, connected providers, logout
-- **Sidebar profile strip** — top of sidebar shows initials avatar, display name, @username; links to profile page
-- **Display name UI** — `displayName` shown as primary name throughout; `@username` as secondary
-- **Initials avatar** — derived from `displayName ?? username`
+### Added since v0.2.0
+- **Group chats** — create / rename / add members / remove members / leave via sidebar and `GroupInfoModal`; sender name rendered above incoming group bubbles
+- **Reactions** — quick-react popover (👍 ❤️ 😂 😮 😢) and chip toggles; one reaction per user per message
+- **Reply** — swipe-style reply selector; reply preview shown inside the bubble
+- **Forward** — `ForwardModal` lets the user pick any chat as the destination; `isForwarded` flag rendered as a label
+- **Edit message** — inline edit textarea on own messages; "Edited" indicator after save
+- **Delete for everyone** — sender-only menu item; placeholder bubble shown to all participants
+- **Delete chat for me** — removes the chat from the local sidebar; backend stores a per-user visibility cutoff
+- **Image and file messages** — paperclip menu uploads via REST then sends a message of `MessageType.IMAGE` / `MessageType.FILE`; previews + download buttons rendered in bubbles
+- **Link previews** — `LinkPreviewCard` shown under text bubbles when the server attaches `LinkPreviewDTO`
+- **Typing indicators** — `is typing…` line above the composer when other participants type
+- **Avatar upload** — profile page lets the user upload or remove their avatar; rendered everywhere via `Avatar`
+- **Persistent unread counts** — `unreadCount` from `GET /chats` is preserved; `POST /chats/:chatId/read` clears it server-side
+- **Temporary draft chat UX** — selecting a user from search opens a `draft:<userId>` chat in the sidebar with the composer ready; sending the first message creates the real chat and replaces the draft in place. Drafts never touch the database.
+- **Browser notifications + sound** — for incoming messages when the chat isn't focused
 
-### Fixed
-- **Auth persistence** — Zustand store hydrates from localStorage; no flash of unauthenticated state on reload
-- **Message deduplication** — duplicate `server.message.new` events no longer insert the same message twice
-- **New chat realtime updates** — `server.message.new` for an unknown `chatId` triggers a chat list refresh immediately
-- **Chat refresh stability** — `useRef` guard prevents `loadChats` and WebSocket init from re-firing on navigation
+### v0.5.0 stabilization (fixes)
+- New OAuth users no longer inherit provider default avatars (`avatarUrl: null`)
+- Reopening a deleted direct chat now correctly creates a fresh history view (cutoff updated on re-delete)
+- Restarting a direct chat with a previous group counterpart no longer reopens the group by mistake — sidebar `startNewChat` filters by `ChatType.DIRECT`
+- Group bubbles now display the sender's display name above the message
+- Chat header dropdown is no longer clipped — stacking context fixed on the header
+- First message from a draft no longer omits the recipient: `chat.store.sendMessage` strips the `draft:` chatId before calling `wsClient.sendMessageSend`, so the realtime layer sees only `recipientUsername`. The `MESSAGE_SENT` handler then migrates the temp message from the draft bucket to the real chat bucket.
 
 ## Known limitations
 
 - **No E2EE.** The `ciphertext` field is stored and transmitted as plain text.
-- **No group chats.** Direct messages only.
-- **No media.** Text messages only.
 - **No offline message queue.** Messages sent while the WebSocket is disconnected are lost. The server auto-reconnects after 3 s but the send is not retried.
+- **Drafts are in-memory only.** A page refresh while composing a draft drops it.
 - **Routing cache resets on server restart.** If `Signalix-realtime` restarts, the in-memory chat routing cache is empty until clients reconnect. Missed messages are recovered by reloading the page.
 - **`NEXT_PUBLIC_*` URLs are build-time constants.** They cannot be changed without rebuilding the image.
+- **No in-conversation search.** Sidebar search finds users; there is no search within message history.
 
 ## Planned
 
-- Message editing
-- Delete for everyone
-- Group chats
-- Media attachments
+- In-conversation search
+- Per-participant read receipts in group chats
 - Push notification integration
+- Persistent drafts across reloads
 - Signal Protocol / E2EE

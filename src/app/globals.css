@@ -3,6 +3,20 @@
 @tailwind utilities;
 
 @layer base {
+  /* Lock the viewport so no scrollbar gutter, browser-chrome resize, or
+     OS-level dialog can cause the page to reflow. Only the message-list
+     element scrolls; body/html never do. */
+  html {
+    height: 100vh;          /* fallback for browsers without dvh */
+    height: 100dvh;         /* adapts to dynamic viewport (mobile browser chrome) */
+    overflow: hidden;
+  }
+
+  body {
+    height: 100%;
+    overflow: hidden;
+  }
+
   :root {
     color-scheme: light dark;
     --accent: #007aff;

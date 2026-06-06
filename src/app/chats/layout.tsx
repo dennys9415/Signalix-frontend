@@ -41,7 +41,7 @@ function ChatsShell({ children }: { children: React.ReactNode }) {
   if (!hydrated || !session) return null;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#f2f2f7] dark:bg-[#0c0c12] md:p-3 md:gap-3">
+    <div className="flex h-full overflow-hidden bg-[#f2f2f7] dark:bg-[#0c0c12] md:p-3 md:gap-3">
 
       {/* ── Icon rail: desktop only ── */}
       <div className="hidden md:flex flex-col w-[68px] flex-shrink-0 bg-white/[0.82] dark:bg-[#1c1c24]/[0.88] backdrop-blur-2xl rounded-2xl shadow-sm dark:shadow-none border border-black/[0.06] dark:border-white/[0.07] overflow-hidden">
@@ -61,7 +61,7 @@ function ChatsShell({ children }: { children: React.ReactNode }) {
       <main
         className={`${
           open ? 'hidden' : 'flex'
-        } md:flex flex-1 flex-col overflow-hidden bg-white/[0.82] dark:bg-[#1c1c24]/[0.88] backdrop-blur-2xl md:rounded-2xl md:shadow-sm dark:shadow-none md:border md:border-black/[0.06] md:dark:border-white/[0.07]`}
+        } md:flex flex-1 min-h-0 flex-col overflow-hidden bg-white/[0.82] dark:bg-[#1c1c24]/[0.88] backdrop-blur-2xl md:rounded-2xl md:shadow-sm dark:shadow-none md:border md:border-black/[0.06] md:dark:border-white/[0.07]`}
       >
         {children}
       </main>

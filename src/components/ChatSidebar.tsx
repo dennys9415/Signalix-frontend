@@ -1,29 +1,30 @@
 'use client';
 
 import { useEffect, useRef, useState, useTransition } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import type { PublicUserDTO } from '@signalix/contracts';
-import { useChatStore } from '../store/chat.store';
+import { ChatType, type ChatDTO, type PublicUserDTO } from '@signalix/contracts';
+import { useChatStore, DRAFT_PREFIX } from '../store/chat.store';
 import { useAuthStore } from '../store/auth.store';
 import { getMe, searchUsers } from '../lib/api-client';
 import { useSidebar } from '../lib/sidebar-context';
 import { ChatItem } from './ChatItem';
 import { Avatar } from './Avatar';
 import { PresenceIndicator } from './PresenceIndicator';
+import { GroupCreateModal } from './GroupCreateModal';
 
 export function ChatSidebar() {
-  const params = useParams();
   const router = useRouter();
   const { setOpen } = useSidebar();
-  const activeChatId = typeof params?.chatId === 'string' ? params.chatId : null;
 
   const session = useAuthStore((s) => s.session);
   const chats = useChatStore((s) => s.chats);
   const messages = useChatStore((s) => s.messages);
   const presence = useChatStore((s) => s.presence);
   const unreadCounts = useChatStore((s) => s.unreadCounts);
-  const setPendingRecipient = useChatStore((s) => s.setPendingRecipient);
+  const activeChatId = useChatStore((s) => s.activeChatId);
+  const setActiveChatId = useChatStore((s) => s.setActiveChatId);
+  const openDraftChat = useChatStore((s) => s.openDraftChat);
 
   const [currentUser, setCurrentUser] = useState<{ id: string; displayName?: string; username: string; avatarUrl?: string | null } | null>(null);
   const [query, setQuery] = useState('');
@@ -31,6 +32,7 @@ export function ChatSidebar() {
   const [searched, setSearched] = useState(false);
   const [searching, startSearch] = useTransition();
   const searchRef = useRef<HTMLInputElement>(null);
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
 
   const currentUserId = session?.userId ?? '';
 
@@ -62,11 +64,14 @@ export function ChatSidebar() {
   }
 
   function startNewChat(user: PublicUserDTO) {
-    const existing = chats.find((c) => c.participants.some((p) => p.userId === user.id));
+    // Only match real direct chats (not drafts) — group chats excluded by type check.
+    const existing = chats.find(
+      (c) => c.type === ChatType.DIRECT && !c.id.startsWith(DRAFT_PREFIX) && c.participants.some((p) => p.userId === user.id),
+    );
     if (existing) {
       router.push(`/chats/${existing.id}`);
     } else {
-      setPendingRecipient(user);
+      openDraftChat(user);
       router.push('/chats');
     }
     clearSearch();
@@ -77,10 +82,16 @@ export function ChatSidebar() {
     setOpen(false);
   }
 
+  function handleDraftClick(chat: ChatDTO) {
+    setActiveChatId(chat.id);
+    router.push('/chats');
+    setOpen(false);
+  }
+
   const isSearching = query.trim().length > 0;
 
   return (
-    <aside className="flex flex-col h-full">
+    <aside className="flex flex-col h-full min-h-0">
 
       {/* ── User profile header — mobile only ── */}
       {currentUser && (
@@ -105,13 +116,22 @@ export function ChatSidebar() {
       {/* ── Sidebar header ── */}
       <div className="flex items-center justify-between px-4 pt-4 pb-2 flex-shrink-0">
         <h2 className="text-[17px] font-bold text-[#1d1d1f] dark:text-[#f5f5f7] tracking-tight">Messages</h2>
-        <button
-          onClick={() => { setQuery(''); searchRef.current?.focus(); }}
-          title="New conversation"
-          className="w-8 h-8 flex items-center justify-center rounded-xl text-[#007aff] dark:text-[#0a84ff] hover:bg-[#007aff]/[0.08] dark:hover:bg-[#0a84ff]/[0.10] transition-all duration-150"
-        >
-          <ComposeIcon />
-        </button>
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={() => setGroupModalOpen(true)}
+            title="New group"
+            className="w-8 h-8 flex items-center justify-center rounded-xl text-[#007aff] dark:text-[#0a84ff] hover:bg-[#007aff]/[0.08] dark:hover:bg-[#0a84ff]/[0.10] transition-all duration-150"
+          >
+            <GroupIcon />
+          </button>
+          <button
+            onClick={() => { setQuery(''); searchRef.current?.focus(); }}
+            title="New conversation"
+            className="w-8 h-8 flex items-center justify-center rounded-xl text-[#007aff] dark:text-[#0a84ff] hover:bg-[#007aff]/[0.08] dark:hover:bg-[#0a84ff]/[0.10] transition-all duration-150"
+          >
+            <ComposeIcon />
+          </button>
+        </div>
       </div>
 
       {/* ── Search ── */}
@@ -142,7 +162,7 @@ export function ChatSidebar() {
 
       {/* ── Search results ── */}
       {isSearching && (
-        <div className="flex-1 overflow-y-auto px-3 space-y-0.5">
+        <div className="flex-1 min-h-0 overflow-y-auto px-3 space-y-0.5">
           {searching && (
             <p className="text-[12px] text-[#aeaeb2] px-2 py-2">Searching…</p>
           )}
@@ -187,7 +207,7 @@ export function ChatSidebar() {
 
       {/* ── Chat list ── */}
       {!isSearching && (
-        <nav className="flex-1 overflow-y-auto px-3 space-y-0.5 pb-3">
+        <nav className="flex-1 min-h-0 overflow-y-auto px-3 space-y-0.5 pb-3">
           {chats.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-4 py-16">
               <EmptyChatIcon />
@@ -211,12 +231,25 @@ export function ChatSidebar() {
                     active={chat.id === activeChatId}
                     lastMessage={lastMessage}
                     unreadCount={unreadCounts[chat.id] ?? 0}
+                    onDraftClick={handleDraftClick}
                   />
                 </div>
               );
             })
           )}
         </nav>
+      )}
+
+      {groupModalOpen && (
+        <GroupCreateModal
+          currentUserId={currentUserId}
+          onCreated={(chatId) => {
+            setGroupModalOpen(false);
+            setOpen(false);
+            router.push(`/chats/${chatId}`);
+          }}
+          onClose={() => setGroupModalOpen(false)}
+        />
       )}
     </aside>
   );
@@ -250,11 +283,24 @@ function ChevronRightIcon() {
   );
 }
 
+function GroupIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="w-4.5 h-4.5 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="7" cy="7" r="3" />
+      <path d="M1 17a6 6 0 0 1 12 0" />
+      <circle cx="15" cy="7" r="2.5" />
+      <path d="M13 17h6a5 5 0 0 0-4-4.9" />
+    </svg>
+  );
+}
+
 function ComposeIcon() {
   return (
     <svg viewBox="0 0 20 20" className="w-4.5 h-4.5 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 12V17h5l8-8-5-5L3 12z" />
-      <path d="M14 5l1-1a1.414 1.414 0 0 1 2 2l-1 1" />
+      {/* Speech bubble (Lucide MessageSquarePlus path scaled 24→20) */}
+      <path d="M17.5 12.5a1.5 1.5 0 0 1-1.5 1.5H6l-3 3V4a1.5 1.5 0 0 1 1.5-1.5h12a1.5 1.5 0 0 1 1.5 1.5z" />
+      {/* Plus sign */}
+      <path d="M10 6v5M7.5 8.5h5" />
     </svg>
   );
 }

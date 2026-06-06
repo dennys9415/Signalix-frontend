@@ -1,19 +1,26 @@
 import type {
+  AddGroupMembersRequest,
   ApiResponse,
   AuthSessionDTO,
   ChatDTO,
+  CreateGroupChatRequest,
+  CreateGroupChatResponse,
   DeleteChatForMeResponse,
   DeleteMessageForMeResponse,
   ExactUsernameLookupResponse,
   ForgotPasswordResponse,
   GetMessagesResponse,
+  GroupMemberUpdateResponse,
   LoginRequest,
   MarkChatReadResponse,
   PresenceLookupResponse,
   RefreshTokenRequest,
   RegisterRequest,
+  RemoveGroupMemberResponse,
   ResendVerificationResponse,
   ResetPasswordResponse,
+  UpdateGroupChatRequest,
+  UpdateGroupChatResponse,
   UserProfileResponse,
   UserSearchResponse,
   VerifyEmailResponse,
@@ -217,6 +224,22 @@ export function uploadMedia(file: File): Promise<{ mediaUrl: string }> {
   const form = new FormData();
   form.append('media', file);
   return authedUpload<{ mediaUrl: string }>('/api/v1/media/upload', form);
+}
+
+export function createGroupChat(dto: CreateGroupChatRequest): Promise<CreateGroupChatResponse> {
+  return authed<CreateGroupChatResponse>('POST', '/api/v1/chats/group', dto);
+}
+
+export function addGroupMembers(chatId: string, dto: AddGroupMembersRequest): Promise<GroupMemberUpdateResponse> {
+  return authed<GroupMemberUpdateResponse>('POST', `/api/v1/chats/${encodeURIComponent(chatId)}/members`, dto);
+}
+
+export function removeGroupMember(chatId: string, userId: string): Promise<RemoveGroupMemberResponse> {
+  return authed<RemoveGroupMemberResponse>('DELETE', `/api/v1/chats/${encodeURIComponent(chatId)}/members/${encodeURIComponent(userId)}`);
+}
+
+export function updateGroupChat(chatId: string, dto: UpdateGroupChatRequest): Promise<UpdateGroupChatResponse> {
+  return authed<UpdateGroupChatResponse>('PATCH', `/api/v1/chats/${encodeURIComponent(chatId)}`, dto);
 }
 
 export function uploadFile(

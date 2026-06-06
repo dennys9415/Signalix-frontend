@@ -4,7 +4,7 @@ Next.js 15 / React 19 / Tailwind CSS / Zustand v5 chat client for Signalix v0.1.
 
 ## Rules
 
-- **No OAuth, no password reset, no groups, no media, no E2EE.**
+- **No OAuth, no password reset, no media, no E2EE.**
 - **Do not duplicate types from `@signalix/contracts`.** Import everything from there.
 - Use `ciphertext` field for message text (UI labels it as "Message" for v0.1).
 - All API calls go through `src/lib/api-client.ts`.
