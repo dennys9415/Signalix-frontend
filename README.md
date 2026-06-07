@@ -1,8 +1,10 @@
 # Signalix Frontend
 
-**Version: v0.7.1**
+**Version: v0.8.0**
 
-Next.js 15 chat client for Signalix. Direct + group chats, text / image / file / **voice note** messages, reactions, replies, forwards, edit, delete-for-me / for-everyone, link previews, typing indicators, presence, avatar upload, draft chat UX, and the full auth stack (local + Google / GitHub / Apple OAuth). Installable as a Progressive Web App with Web Push notifications.
+Next.js 15 chat client for Signalix. Direct + group chats, text / image / file / **voice note** messages, reactions, replies, forwards, edit, delete-for-me / for-everyone, link previews, typing indicators, presence, avatar upload, draft chat UX, and the full auth stack (local + Google / GitHub / Apple OAuth). Installable as a Progressive Web App with Web Push notifications. v0.8.0 lands the **encryption foundation** scaffolding in `src/lib/crypto/` — no real E2EE yet (see below).
+
+> ⚠️ **v0.8.0 ships an encryption *foundation*, not real E2EE.** `lib/crypto/` exposes a `cryptoService` singleton whose v0.8.0 implementation is a plaintext-passthrough mock. The chat send / receive pipeline is unchanged and not yet wired through it. v0.9.0 is the planned E2EE beta. Don't claim encryption to users on a v0.8.0 build.
 
 ## Stack
 
@@ -268,6 +270,25 @@ Available since v0.6.1. Composer mic button replaces the send button while the t
 - No waveform rendering, no playback speed, no scrubbing (seek-to-position) — only play/pause + progress.
 - Duration is recorder-reported; once `<audio>` metadata loads, the player overrides it with the file's real duration.
 - iOS requires the user to interact before mic capture works (browser policy).
+
+## v0.8.0 changelog
+
+### Added — Encryption foundation (NOT real E2EE yet)
+
+> **Important.** v0.8.0 ships the type system, the API client surface, and the abstraction layer for a future Signal-Protocol-style E2EE rollout. **No messages are actually encrypted yet** — the frontend's crypto layer is a passthrough mock and the backend keeps receiving plaintext in `messages.ciphertext`. **v0.9.0 will be the real E2EE beta.**
+
+- **`src/lib/crypto/`** scaffolding:
+  - `crypto.types.ts` — re-exports of contracts crypto DTOs + the `CryptoService` interface and `EncryptedEnvelope` shape.
+  - `crypto.service.ts` — exports a singleton `cryptoService: CryptoService` plus a `getCryptoStatus()` helper for settings UI. Swapping to the real implementation in v0.9.0 is a one-line change here.
+  - `crypto.mock.ts` — `MockCryptoService` returns `{ ciphertext: plaintext, encryptionVersion: 0 }` from `encryptForRecipient`, passes plaintext through `decryptIncoming`, surfaces a `[encrypted message — upgrade to view]` placeholder if an incoming envelope is `encryptionVersion >= 1`. Dev console logs `[signalix-crypto] mock service ready — no E2EE active`.
+- **Contracts** — `MessageDTO`, `SendMessageRequest`, `ClientMessageSendPayload`, `ServerMessageNewPayload` all gain optional `encryptionVersion`, `senderDeviceId`, `recipientDeviceId`, `preKeyId`, `signedPreKeyId`. Compatible with v0.7.x clients.
+
+### Not integrated yet
+- The crypto service is **not** yet wired into `chat.store.sendMessage` or the WS receive path. That's a v0.9.0 task once the real implementation lands. Today the scaffolding exists so the call sites can be migrated atomically.
+- The crypto endpoints in the API (`/crypto/devices/keys` etc.) are reachable but **not called by the frontend in v0.8.0**.
+
+### Not broken
+- Direct chats, group chats, media, files, voice notes, reactions, replies, forwards, edit, delete, sidebar / in-chat search, push notifications — all continue to work exactly as in v0.7.1.
 
 ## v0.7.1 changelog
 
