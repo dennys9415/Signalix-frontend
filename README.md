@@ -1,10 +1,10 @@
 # Signalix Frontend
 
-**Version: v0.8.0**
+**Version: v0.9.0**
 
-Next.js 15 chat client for Signalix. Direct + group chats, text / image / file / **voice note** messages, reactions, replies, forwards, edit, delete-for-me / for-everyone, link previews, typing indicators, presence, avatar upload, draft chat UX, and the full auth stack (local + Google / GitHub / Apple OAuth). Installable as a Progressive Web App with Web Push notifications. v0.8.0 lands the **encryption foundation** scaffolding in `src/lib/crypto/` — no real E2EE yet (see below).
+Next.js 15 chat client for Signalix. Direct + group chats, text / image / file / **voice note** messages, reactions, replies, forwards, edit, delete-for-me / for-everyone, link previews, typing indicators, presence, avatar upload, draft chat UX, and the full auth stack (local + Google / GitHub / Apple OAuth). Installable as a Progressive Web App with Web Push notifications. v0.9.0 turns on **real beta end-to-end encryption for direct text messages** via `src/lib/crypto/signal.service.ts` — X25519 ECDH + AES-256-GCM, keys generated in the browser, stored in IndexedDB, never sent to the server.
 
-> ⚠️ **v0.8.0 ships an encryption *foundation*, not real E2EE.** `lib/crypto/` exposes a `cryptoService` singleton whose v0.8.0 implementation is a plaintext-passthrough mock. The chat send / receive pipeline is unchanged and not yet wired through it. v0.9.0 is the planned E2EE beta. Don't claim encryption to users on a v0.8.0 build.
+> ⚠️ **Beta E2EE — not production-grade.** Direct text messages are encrypted between v0.9.0+ clients. **Groups, images, files, voice notes remain plaintext** on the server (and the receiver-side preview rendering hasn't changed for them). No Double Ratchet, no multi-device fan-out, no server-side signed-pre-key signature verification yet. **v0.10.0** hardens this; v0.11.0+ extends to groups + media. The chat header shows a 🔒 "End-to-end encrypted beta" pill for direct chats; messages that fail to decrypt render as `[Unable to decrypt message]`.
 
 ## Stack
 
@@ -270,6 +270,48 @@ Available since v0.6.1. Composer mic button replaces the send button while the t
 - No waveform rendering, no playback speed, no scrubbing (seek-to-position) — only play/pause + progress.
 - Duration is recorder-reported; once `<audio>` metadata loads, the player overrides it with the file's real duration.
 - iOS requires the user to interact before mic capture works (browser policy).
+
+## v0.9.0 changelog — Signal Protocol Beta (direct text only)
+
+### Fixed (post-initial-cut)
+- **Init-race protection in `signal.service.decryptIncoming`.** If a `MESSAGE_NEW` arrived between login and the end of the initial key-publish, the local IndexedDB lookups would return `undefined` and the bubble would render as `[Unable to decrypt message]`. `decryptIncoming` now `await`s the service's in-flight `initPromise` before reading from IDB.
+- **Dev diagnostics around decrypt.** `signal.service.decryptIncoming` logs `[signalix-crypto] decrypt attempt` (with `version`, `signedPreKeyId`, `preKeyId`) and `[signalix-crypto] decrypt success`; `chat.store.decryptStoredMessage` logs `[signalix-crypto] decrypt failed` with the reason on the catch path. All log calls are gated on `NODE_ENV !== 'production'`.
+- Companion fix in `Signalix-realtime` — the WS layer was dropping the envelope fields between `client.message.send` and `server.message.new`, so the recipient was seeing the raw `{"v":1,"c":"…","iv":"…","eph":"…"}` JSON. See the realtime README's v0.9.0 changelog.
+
+> ⚠️ **Beta E2EE.** v0.9.0 enables real end-to-end encryption for **direct text messages only**. Groups, images, files, voice notes, reactions, and edited bodies remain plaintext on the server. Not production-grade — no Double Ratchet, no signature verification yet, single-device assumption, no per-message forward secrecy beyond signed-pre-key rotation. **v0.10.0 hardens this**: multi-device fan-out, Double Ratchet, signature verification, pre-key deletion after use.
+
+### Added
+- **`src/lib/crypto/signal.service.ts`** — `SignalCryptoService implements CryptoService`. Real Web Crypto:
+  - **Identity**: X25519 keypair (ECDH) + Ed25519 keypair (signs every signed pre-key on publish).
+  - **Bootstrap**: on first `init({ deviceId })` generates identity / signed-pre-key / 100 one-time pre-keys and publishes via `POST /crypto/devices/keys`. Subsequent calls top up the one-time pool when below 20.
+  - **Encrypt**: per-message ephemeral X25519 keypair → `ECDH(eph, signedPreKey) [|| ECDH(eph, oneTimePreKey)]` → HKDF-SHA256 with `info="signalix-v1-direct-text"` → AES-256-GCM with 12-byte random IV.
+  - **Envelope wire format**: `JSON.stringify({ v: 1, c: <ciphertext-b64url>, iv: <iv-b64url>, eph: <sender-ephemeral-pub-b64url> })` carried in the existing `messages.ciphertext` column. The 5 envelope columns (`encryption_version`, `sender_device_id`, `recipient_device_id`, `pre_key_id`, `signed_pre_key_id`) from v0.8.0 carry the metadata.
+  - **Decrypt**: looks up local signed-pre-key + one-time pre-key by id, reverses the ECDH, derives the same AES key, decrypts.
+- **`src/lib/crypto/db.ts`** — IndexedDB schema (`signalix-crypto-v1` database): `identity`, `signed-pre-keys`, `pre-keys`, `plaintext-cache` stores. CryptoKey instances stored directly via structured clone.
+- **`src/lib/crypto/plaintext-cache.ts`** — local cache so the sender can re-render their own outgoing text after a history reload (they encrypted to the recipient's keys; their server row is undecryptable to themselves).
+- **`src/lib/crypto/utils.ts`** — base64url, X25519/Ed25519 importers, HKDF-AES helper.
+- **`crypto.service.ts` swap point** — picks `SignalCryptoService` by default, falls back to the v0.8.0 `MockCryptoService` when `NEXT_PUBLIC_E2EE_DEV_FALLBACK=true`.
+- **`auth.store`** kicks off `cryptoService.init({ deviceId })` on every successful hydrate / login / register / refresh / OAuth path. Fire-and-forget — failures are logged, never block auth.
+- **`chat.store` integration**:
+  - `sendMessage` for direct + TEXT + non-draft messages encrypts via `cryptoService.encryptForRecipient` before WS send. Plaintext fallback on any error (recipient hasn't published keys, network blip, etc.) so transitioning users always send something.
+  - `MESSAGE_NEW` handler decrypts encrypted incoming messages in a follow-up tick and replaces the ciphertext in the store.
+  - `MESSAGE_SENT` handler caches the sender's plaintext keyed by the freshly-assigned `messageId`.
+  - `loadMessages` runs every history page through `decryptStoredMessage`: cache lookup first, then live decrypt, then `DECRYPT_FAILED_PLACEHOLDER`.
+- **UX**:
+  - Direct-chat header shows a small **🔒 End-to-end encrypted beta** pill next to the presence row.
+  - Messages whose ciphertext resolves to `"[Unable to decrypt message]"` render with an italic + unlocked-padlock treatment.
+
+### Compatibility / not encrypted (yet)
+- Group chats, image messages, file attachments, voice notes, reactions, replies, forwards, edit, delete, search, push — continue to work as v0.8.0. Reactions / replies / forwards reference the encrypted message by id but the reaction / preview metadata itself is not encrypted.
+- The mock service is still shipped — `NEXT_PUBLIC_E2EE_DEV_FALLBACK=true` falls back to plaintext for local dev when running against unpublished peers.
+
+### Known limitations
+- **No Double Ratchet** — single ephemeral keypair per message; no chain keys; forward secrecy is bounded by signed-pre-key rotation cadence.
+- **No multi-device fan-out** — the sender picks the first device bundle returned by `GET /crypto/users/:userId/key-bundle`. Other devices of the same recipient won't receive the message.
+- **No signature verification** of submitted signed-pre-keys — the API stores them as opaque blobs. v0.10.0 lands Ed25519 verification.
+- **Pre-keys are not deleted locally** after first use. Real Signal deletes them to bound the blast radius of device compromise.
+- **Sender history needs the local plaintext cache.** Logging into a brand-new browser leaves earlier sent messages as `[Unable to decrypt message]` until v0.10.0's sender-key archive lands.
+- **No safety-number / key-verification UX yet** — users can't verify they're talking to the right device.
 
 ## v0.8.0 changelog
 

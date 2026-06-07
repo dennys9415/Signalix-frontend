@@ -21,6 +21,8 @@ import * as api from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
 import { playNotificationSound, showBrowserNotification } from '../lib/notification';
 import { useAuthStore } from './auth.store';
+import { cryptoService, DECRYPT_FAILED_PLACEHOLDER } from '../lib/crypto/crypto.service';
+import { cachePlaintext, lookupPlaintext } from '../lib/crypto/plaintext-cache';
 
 export interface TempMessage {
   tempId: string;
@@ -117,6 +119,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
               ? msgs.map((m) => {
                   if (!('tempId' in m) || m.tempId !== p.tempId) return m;
                   const tmp = m as TempMessage;
+                  // Cache sender plaintext so a later history reload can
+                  // display the message we just sent (we encrypted it for
+                  // the recipient's keys, not our own, so we can't decrypt
+                  // it from the server's row).
+                  if (tmp.messageType === MessageType.TEXT) {
+                    void cachePlaintext(p.messageId, p.chatId, tmp.ciphertext);
+                  }
                   const confirmed: MessageDTO = {
                     id: p.messageId,
                     chatId: p.chatId,
@@ -159,32 +168,56 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const isNewChat = !state.chats.some((c) => c.id === p.chatId);
         const isActiveChat = state.activeChatId === p.chatId;
 
+        // Build the raw MessageDTO with envelope metadata copied through
+        // (server-side envelope fields are additive in v0.8.0+ payloads).
+        const rawMsg: MessageDTO = {
+          id: p.messageId,
+          chatId: p.chatId,
+          senderId: p.senderId,
+          ciphertext: p.ciphertext,
+          messageType: p.messageType,
+          state: 'delivered' as never,
+          createdAt: p.timestamp,
+          ...(p.replyTo && { replyTo: p.replyTo }),
+          ...(p.isForwarded && { isForwarded: true }),
+          ...(p.linkPreview && { linkPreview: p.linkPreview }),
+          ...(p.encryptionVersion !== undefined && { encryptionVersion: p.encryptionVersion }),
+          ...(p.senderDeviceId !== undefined && { senderDeviceId: p.senderDeviceId }),
+          ...(p.recipientDeviceId !== undefined && { recipientDeviceId: p.recipientDeviceId }),
+          ...(p.preKeyId !== undefined && { preKeyId: p.preKeyId }),
+          ...(p.signedPreKeyId !== undefined && { signedPreKeyId: p.signedPreKeyId }),
+        };
+
         set((s) => {
           const existing = s.messages[p.chatId] ?? [];
           const alreadyHave = existing.some((m) => 'id' in m && m.id === p.messageId);
           if (alreadyHave) return s;
-
-          const msg: MessageDTO = {
-            id: p.messageId,
-            chatId: p.chatId,
-            senderId: p.senderId,
-            ciphertext: p.ciphertext,
-            messageType: p.messageType,
-            state: 'delivered' as never,
-            createdAt: p.timestamp,
-            ...(p.replyTo && { replyTo: p.replyTo }),
-            ...(p.isForwarded && { isForwarded: true }),
-            ...(p.linkPreview && { linkPreview: p.linkPreview }),
-          };
-
           return {
-            messages: { ...s.messages, [p.chatId]: [...existing, msg] },
+            messages: { ...s.messages, [p.chatId]: [...existing, rawMsg] },
             // Only count as unread when the user isn't looking at this chat.
             unreadCounts: isActiveChat
               ? s.unreadCounts
               : { ...s.unreadCounts, [p.chatId]: (s.unreadCounts[p.chatId] ?? 0) + 1 },
           };
         });
+
+        // For v0.9.0 E2EE messages, replace ciphertext with plaintext in
+        // the next tick. Fire-and-forget — failure shows the "[Unable to
+        // decrypt message]" sentinel via decryptStoredMessage.
+        if (rawMsg.encryptionVersion && rawMsg.encryptionVersion >= 1) {
+          void (async () => {
+            const decrypted = await decryptStoredMessage(rawMsg);
+            if (decrypted.ciphertext === rawMsg.ciphertext) return; // unchanged
+            set((s) => {
+              const chatMsgs = s.messages[p.chatId];
+              if (!chatMsgs) return s;
+              const idx = chatMsgs.findIndex((m) => 'id' in m && m.id === p.messageId);
+              if (idx === -1) return s;
+              const updated = chatMsgs.map((m, i) => (i === idx ? decrypted : m));
+              return { messages: { ...s.messages, [p.chatId]: updated } };
+            });
+          })();
+        }
 
         wsClient.sendMessageDelivered({ messageId: p.messageId, chatId: p.chatId });
 
@@ -369,8 +402,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((s) => ({ loadingMessages: { ...s.loadingMessages, [chatId]: true } }));
     try {
       const { messages } = await api.getMessages(chatId, { limit: 50 });
+      // v0.9.0 E2EE beta: resolve plaintext for any encrypted direct-text
+      // messages before they hit the store. Non-encrypted messages and
+      // non-TEXT types pass through unchanged.
+      const decrypted = await decryptStoredMessages(messages);
       set((s) => ({
-        messages: { ...s.messages, [chatId]: [...messages].reverse() },
+        messages: { ...s.messages, [chatId]: [...decrypted].reverse() },
         loadingMessages: { ...s.loadingMessages, [chatId]: false },
       }));
     } catch {
@@ -380,6 +417,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   sendMessage({ chatId, recipientUsername, ciphertext, replyToMessageId, isForwarded, messageType }) {
     const tempId = `tmp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const currentUserId = useAuthStore.getState().session?.userId ?? '';
 
     // Resolve reply preview from store so temp message renders immediately
     let replyTo: import('@signalix/contracts').ReplyPreviewDTO | undefined;
@@ -423,7 +461,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // The backend must see only recipientUsername so it can create the real
     // direct chat and broadcast MESSAGE_NEW to the recipient.
     const wsChatId = chatId && !chatId.startsWith(DRAFT_PREFIX) ? chatId : undefined;
-    wsClient.sendMessageSend({ chatId: wsChatId, recipientUsername, ciphertext, messageType: resolvedType, tempId, replyToMessageId, isForwarded });
+
+    // v0.9.0 E2EE beta: try to encrypt direct + TEXT messages. Falls back
+    // to plaintext (encryptionVersion: 0) when the recipient hasn't
+    // published keys yet, when the crypto service isn't ready, or when
+    // any step fails — so transitioning users never lose messages.
+    void dispatchSend({
+      tempId,
+      wsChatId,
+      chatId,
+      recipientUsername,
+      plaintext: ciphertext,
+      messageType: resolvedType,
+      replyToMessageId,
+      isForwarded,
+      state: get(),
+      currentUserId,
+    });
   },
 
   markRead(chatId, messageId) {
@@ -724,3 +778,151 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
   },
 }));
+
+// ── v0.9.0 E2EE helpers ──────────────────────────────────────────────────
+//
+// All E2EE logic is kept module-local so the store factory above stays
+// readable. The helpers fall back to plaintext on any failure so users
+// in transition (recipient hasn't published keys yet, crypto service not
+// ready, network blip fetching the bundle) keep sending and receiving
+// messages instead of seeing errors.
+
+interface DispatchSendArgs {
+  tempId: string;
+  wsChatId: string | undefined;
+  chatId?: string;
+  recipientUsername?: string;
+  plaintext: string;
+  messageType: import('@signalix/contracts').SendableMessageType;
+  replyToMessageId?: string;
+  isForwarded?: boolean;
+  state: ChatState;
+  currentUserId: string;
+}
+
+/**
+ * Resolves the recipient's userId for an outgoing direct-chat message.
+ * For drafts we read it off the in-memory `currentDraft`; for real chats
+ * we pull it off the chat's `participants`. Returns `undefined` for
+ * groups / unknown chats, which causes the send path to skip encryption.
+ */
+function resolveDirectRecipient(state: ChatState, args: DispatchSendArgs): string | undefined {
+  let chat: ChatDTO | undefined;
+  if (args.chatId?.startsWith(DRAFT_PREFIX)) {
+    chat = state.currentDraft ?? undefined;
+  } else if (args.chatId) {
+    chat = state.chats.find((c) => c.id === args.chatId);
+  }
+  if (!chat || chat.type !== ChatType.DIRECT) return undefined;
+  const other = chat.participants.find((p) => p.userId !== args.currentUserId);
+  return other?.userId;
+}
+
+async function dispatchSend(args: DispatchSendArgs): Promise<void> {
+  // Default envelope = plaintext + version 0 (current pre-E2EE wire format).
+  let ciphertext = args.plaintext;
+  let encryptionVersion: number | undefined;
+  let senderDeviceId: string | undefined;
+  let recipientDeviceId: string | undefined;
+  let preKeyId: number | undefined;
+  let signedPreKeyId: number | undefined;
+
+  // v0.9.0 scope: encrypt only direct + TEXT messages. Groups, media, files,
+  // and voice notes continue to flow as plaintext until later releases
+  // graduate them to E2EE.
+  const isEncryptable = args.messageType === MessageType.TEXT;
+
+  if (isEncryptable && cryptoService.isReady()) {
+    const recipientUserId = resolveDirectRecipient(args.state, args);
+    if (recipientUserId) {
+      try {
+        const envelope = await cryptoService.encryptForRecipient(args.plaintext, {
+          ...(args.chatId !== undefined && { chatId: args.chatId }),
+          ...(args.recipientUsername !== undefined && { recipientUsername: args.recipientUsername }),
+          recipientUserId,
+        });
+        ciphertext = envelope.ciphertext;
+        encryptionVersion = envelope.encryptionVersion;
+        senderDeviceId = envelope.senderDeviceId;
+        recipientDeviceId = envelope.recipientDeviceId;
+        preKeyId = envelope.preKeyId;
+        signedPreKeyId = envelope.signedPreKeyId;
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn('[signalix-crypto] encrypt failed, sending plaintext', err);
+      }
+    }
+  }
+
+  wsClient.sendMessageSend({
+    ...(args.wsChatId !== undefined && { chatId: args.wsChatId }),
+    ...(args.recipientUsername !== undefined && { recipientUsername: args.recipientUsername }),
+    ciphertext,
+    messageType: args.messageType,
+    tempId: args.tempId,
+    ...(args.replyToMessageId !== undefined && { replyToMessageId: args.replyToMessageId }),
+    ...(args.isForwarded !== undefined && { isForwarded: args.isForwarded }),
+    ...(encryptionVersion !== undefined && { encryptionVersion }),
+    ...(senderDeviceId !== undefined && { senderDeviceId }),
+    ...(recipientDeviceId !== undefined && { recipientDeviceId }),
+    ...(preKeyId !== undefined && { preKeyId }),
+    ...(signedPreKeyId !== undefined && { signedPreKeyId }),
+  });
+}
+
+/**
+ * Resolve plaintext for a single message, in order:
+ *   1. Sender's local plaintext cache (for own outgoing messages or
+ *      previously-decrypted incoming ones).
+ *   2. Live decrypt via CryptoService (for incoming messages on first
+ *      sight after history reload).
+ *   3. Sentinel "[Unable to decrypt message]" when none of the above
+ *      recovers the plaintext.
+ *
+ * Non-encrypted messages (encryptionVersion 0 / undefined) and non-TEXT
+ * messages (image / file / voice — not encrypted in v0.9.0) pass through
+ * unchanged.
+ */
+async function decryptStoredMessage(m: MessageDTO): Promise<MessageDTO> {
+  const isEncrypted = !!m.encryptionVersion && m.encryptionVersion >= 1;
+  if (!isEncrypted) return m;
+  if (m.messageType !== MessageType.TEXT) return m;
+
+  const cached = await lookupPlaintext(m.id);
+  if (cached !== undefined) return { ...m, ciphertext: cached };
+
+  try {
+    const plaintext = await cryptoService.decryptIncoming({
+      ciphertext: m.ciphertext,
+      encryptionVersion: m.encryptionVersion,
+      ...(m.senderDeviceId !== undefined && { senderDeviceId: m.senderDeviceId }),
+      ...(m.preKeyId !== undefined && { preKeyId: m.preKeyId }),
+      ...(m.signedPreKeyId !== undefined && { signedPreKeyId: m.signedPreKeyId }),
+    });
+    // Cache so subsequent reloads skip the decrypt cost — and so a later
+    // pre-key rotation can't strand history.
+    await cachePlaintext(m.id, m.chatId, plaintext);
+    return { ...m, ciphertext: plaintext };
+  } catch (err) {
+    if (process.env.NODE_ENV !== 'production') {
+      // eslint-disable-next-line no-console
+      console.warn('[signalix-crypto] decrypt failed', {
+        messageId: m.id,
+        encryptionVersion: m.encryptionVersion,
+        signedPreKeyId: m.signedPreKeyId,
+        preKeyId: m.preKeyId,
+        reason: (err as Error)?.message,
+      });
+    }
+    return { ...m, ciphertext: DECRYPT_FAILED_PLACEHOLDER };
+  }
+}
+
+/**
+ * Apply `decryptStoredMessage` to a batch and preserve order.
+ * Used by `loadMessages` on history reload.
+ */
+async function decryptStoredMessages(msgs: MessageDTO[]): Promise<MessageDTO[]> {
+  return Promise.all(msgs.map(decryptStoredMessage));
+}
+

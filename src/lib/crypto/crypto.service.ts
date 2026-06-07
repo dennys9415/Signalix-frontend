@@ -1,21 +1,33 @@
 // Public entry point for the crypto layer.
 //
-// Exposes a singleton `cryptoService` (currently a MockCryptoService)
-// plus a `getCryptoStatus()` helper used by settings / debug UI. Swap
-// the implementation here — not at every call site — when v0.9.0 ships
-// a real Signal-Protocol backend.
+// In v0.9.0 the singleton is the real `SignalCryptoService` by default.
+// `NEXT_PUBLIC_E2EE_DEV_FALLBACK=true` opts back into the v0.8.0 mock for
+// development — useful when running without a key-bundle-equipped peer
+// (e.g. local testing against a freshly-wiped database).
+//
+// The interface is identical for both implementations; callers don't
+// need to branch.
 
 import { MockCryptoService, describeMock } from './crypto.mock';
+import { SignalCryptoService } from './signal.service';
 import type { CryptoService, CryptoStatus } from './crypto.types';
 
-// Exported as a `CryptoService` so consumers can't accidentally rely on
-// MockCryptoService specifics.
-export const cryptoService: CryptoService = new MockCryptoService();
+const USE_DEV_FALLBACK = process.env.NEXT_PUBLIC_E2EE_DEV_FALLBACK === 'true';
+
+export const cryptoService: CryptoService = USE_DEV_FALLBACK
+  ? new MockCryptoService()
+  : new SignalCryptoService();
 
 export function getCryptoStatus(): CryptoStatus {
-  // The mock is always the implementation in v0.8.0. The real one will
-  // pick its own descriptor.
-  return describeMock();
+  if (USE_DEV_FALLBACK) {
+    return describeMock();
+  }
+  return {
+    e2eeActive: cryptoService.isReady(),
+    implementation: 'signal-beta-v1 (X25519 + AES-256-GCM, direct text only)',
+  };
 }
+
+export { DECRYPT_FAILED_PLACEHOLDER } from './signal.service';
 
 export type { CryptoService, CryptoStatus, EncryptedEnvelope } from './crypto.types';

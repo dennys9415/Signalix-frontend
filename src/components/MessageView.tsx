@@ -6,6 +6,7 @@ import { ChatType, MessageType, type ChatDTO, type InChatSearchMatchDTO, type Li
 import { useChatStore, type TempMessage, type StoredMessage } from '../store/chat.store';
 import { useAuthStore } from '../store/auth.store';
 import { downloadFileAttachment, searchInChat } from '../lib/api-client';
+import { DECRYPT_FAILED_PLACEHOLDER } from '../lib/crypto/crypto.service';
 import { wsClient } from '../lib/ws-client';
 import { formatLastSeen } from '../lib/presence';
 import { useSidebar } from '../lib/sidebar-context';
@@ -487,6 +488,17 @@ function MessageBubble({ m, currentUserId, chatId, isGroup, getSenderName, onRep
                   <FileCard fileInfo={parseFileInfo(text)} time={time} isMine={isMine} state={state} messageId={messageId} />
                 ) : isAudio ? (
                   <VoiceBubbleSection text={text} time={time} isMine={isMine} state={state} />
+                ) : text === DECRYPT_FAILED_PLACEHOLDER ? (
+                  <>
+                    <p className={`text-[14px] italic leading-relaxed flex items-center gap-1.5 ${isMine ? 'text-white/70 dark:text-white/60' : 'text-[#8e8e93] dark:text-[#9a9aa3]'}`}>
+                      <LockOpenIcon />
+                      Unable to decrypt message
+                    </p>
+                    <div className={`flex items-center gap-1 mt-0.5 ${isMine ? 'justify-end' : 'justify-start'}`}>
+                      <span className={`text-[11px] ${isMine ? 'text-white/60 dark:text-white/50' : 'text-[#8e8e93] dark:text-[#9a9aa3]'}`}>{time}</span>
+                      {isMine && <StatusIcon state={state} />}
+                    </div>
+                  </>
                 ) : (
                   <>
                     <p className="text-[15px] leading-relaxed break-words whitespace-pre-wrap [overflow-wrap:anywhere]">
@@ -886,11 +898,22 @@ export function MessageView({ chat }: Props) {
           {isGroup ? (
             <p className="text-[12px] text-[#8e8e93] dark:text-[#9a9aa3]">{chat.participants.length} members</p>
           ) : (
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
               <PresenceIndicator online={isOnline} size="sm" />
               <p className={`text-[12px] font-medium ${isOnline ? 'text-emerald-500' : 'text-[#8e8e93] dark:text-[#9a9aa3]'}`}>
                 {isOnline ? 'Online' : formatLastSeen(otherLastSeen)}
               </p>
+              {/* v0.9.0 E2EE indicator. Only shown for direct, real-id
+                  chats (drafts haven't published keys yet either way). */}
+              {!isDraft && (
+                <span
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-[#007aff] dark:text-[#0a84ff] bg-[#007aff]/[0.08] dark:bg-[#0a84ff]/[0.10] px-1.5 py-0.5 rounded-full"
+                  title="Direct text messages are encrypted end-to-end (beta)"
+                >
+                  <LockIcon />
+                  End-to-end encrypted beta
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -1190,6 +1213,24 @@ function ChevronDownHeaderIcon() {
   return (
     <svg viewBox="0 0 16 16" className="w-4 h-4 fill-none stroke-current stroke-[2]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <polyline points="3 5 8 11 13 5" />
+    </svg>
+  );
+}
+
+function LockIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="w-3 h-3 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="7" width="10" height="7" rx="1.5" />
+      <path d="M5.5 7V4.75a2.5 2.5 0 0 1 5 0V7" />
+    </svg>
+  );
+}
+
+function LockOpenIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 fill-none stroke-current stroke-[1.5]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="7" width="10" height="7" rx="1.5" />
+      <path d="M5.5 7V4.75a2.5 2.5 0 0 1 4.5-1.5" />
     </svg>
   );
 }

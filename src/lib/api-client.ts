@@ -20,11 +20,18 @@ import type {
   ResendVerificationResponse,
   ResetPasswordResponse,
   GroupAvatarUploadResponse,
+  KeyBundleResponse,
+  RegisterDeviceKeysRequest,
+  RegisterDeviceKeysResponse,
+  RotateSignedPreKeyRequest,
+  RotateSignedPreKeyResponse,
   SearchInChatResponse,
   SearchMessagesResponse,
   TransferGroupOwnershipRequest,
   TransferGroupOwnershipResponse,
   UpdateGroupChatRequest,
+  UploadPreKeysRequest,
+  UploadPreKeysResponse,
   UpdateGroupChatResponse,
   UserProfileResponse,
   UserSearchResponse,
@@ -362,4 +369,22 @@ export async function downloadFileAttachment(messageId: string, fileName: string
     }
     throw err;
   }
+}
+
+// ── Crypto (v0.8.0 foundation, used by the v0.9.0 Signal client) ───────────
+
+export function registerDeviceKeys(dto: RegisterDeviceKeysRequest): Promise<RegisterDeviceKeysResponse> {
+  return authed<RegisterDeviceKeysResponse>('POST', '/api/v1/crypto/devices/keys', dto);
+}
+
+export function rotateSignedPreKey(dto: RotateSignedPreKeyRequest): Promise<RotateSignedPreKeyResponse> {
+  return authed<RotateSignedPreKeyResponse>('PATCH', '/api/v1/crypto/devices/keys/signed-pre-key', dto);
+}
+
+export function uploadPreKeys(dto: UploadPreKeysRequest): Promise<UploadPreKeysResponse> {
+  return authed<UploadPreKeysResponse>('POST', '/api/v1/crypto/devices/keys/pre-keys', dto);
+}
+
+export function getKeyBundle(userId: string): Promise<KeyBundleResponse> {
+  return authed<KeyBundleResponse>('GET', `/api/v1/crypto/users/${encodeURIComponent(userId)}/key-bundle`);
 }

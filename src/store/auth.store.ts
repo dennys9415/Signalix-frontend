@@ -5,6 +5,19 @@ import type { AuthSessionDTO } from '@signalix/contracts';
 import * as api from '../lib/api-client';
 import { clearSession, isAccessTokenExpired, loadSession, saveSession } from '../lib/token-storage';
 import { wsClient } from '../lib/ws-client';
+import { cryptoService } from '../lib/crypto/crypto.service';
+
+/**
+ * Kick off the v0.9.0 crypto init in the background. Never throws, never
+ * blocks the auth flow — if init fails (no IndexedDB, network down, etc.)
+ * the chat send path will fall back to plaintext per `chat.store`.
+ */
+function initCrypto(deviceId: string): void {
+  void cryptoService.init({ deviceId }).catch((err: unknown) => {
+    // eslint-disable-next-line no-console
+    console.warn('[signalix-crypto] init failed', err);
+  });
+}
 
 interface AuthState {
   session: AuthSessionDTO | null;
@@ -41,6 +54,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         const refreshed = await api.refresh(session.refreshToken);
         // api.refresh() already calls saveSession() internally.
         wsClient.connect(refreshed.accessToken);
+        initCrypto(refreshed.deviceId);
         set({ hydrated: true, session: refreshed });
       } catch {
         // Refresh token also expired or revoked — force login.
@@ -51,6 +65,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
 
     wsClient.connect(session.accessToken);
+    initCrypto(session.deviceId);
     set({ hydrated: true, session });
   },
 
@@ -64,6 +79,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
       saveSession(session);
       wsClient.connect(session.accessToken);
+      initCrypto(session.deviceId);
       set({ session, hydrated: true, loading: false });
     } catch (err) {
       const msg = err instanceof api.ApiError ? err.message : 'Login failed';
@@ -83,6 +99,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
       saveSession(session);
       wsClient.connect(session.accessToken);
+      initCrypto(session.deviceId);
       set({ session, hydrated: true, loading: false });
     } catch (err) {
       const msg = err instanceof api.ApiError ? err.message : 'Registration failed';
@@ -94,6 +111,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   loginWithOAuth(session) {
     saveSession(session);
     wsClient.connect(session.accessToken);
+    initCrypto(session.deviceId);
     set({ session, hydrated: true, error: null });
   },
 
