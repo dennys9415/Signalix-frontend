@@ -124,4 +124,41 @@
   .dark .surface-glass-strong {
     border-color: rgba(255, 255, 255, 0.07);
   }
+
+  /* Transient ring used to flag a message that the user opened from search.
+     Applied via JS for ~2 s then removed; transition-shadow on the row
+     animates the in/out. */
+  .signalix-search-hit {
+    box-shadow:
+      0 0 0 2px rgba(0, 122, 255, 0.45),
+      0 0 24px rgba(0, 122, 255, 0.25);
+    border-radius: 24px;
+  }
+  .dark .signalix-search-hit {
+    box-shadow:
+      0 0 0 2px rgba(10, 132, 255, 0.55),
+      0 0 24px rgba(10, 132, 255, 0.30);
+  }
+
+  /* In-chat search: every match gets a soft amber tint; the focused match
+     gets a stronger blue ring + glow so it stands out as the "current"
+     one in iMessage-style "X of Y" navigation. */
+  .signalix-search-match {
+    box-shadow: 0 0 0 2px rgba(252, 211, 77, 0.45);
+    border-radius: 24px;
+  }
+  .dark .signalix-search-match {
+    box-shadow: 0 0 0 2px rgba(252, 211, 77, 0.30);
+  }
+  .signalix-search-active {
+    box-shadow:
+      0 0 0 2.5px rgba(0, 122, 255, 0.65),
+      0 0 28px rgba(0, 122, 255, 0.30);
+    border-radius: 24px;
+  }
+  .dark .signalix-search-active {
+    box-shadow:
+      0 0 0 2.5px rgba(10, 132, 255, 0.75),
+      0 0 28px rgba(10, 132, 255, 0.35);
+  }
 }

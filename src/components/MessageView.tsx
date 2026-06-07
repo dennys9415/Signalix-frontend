@@ -1,11 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { ChatType, MessageType, type ChatDTO, type LinkPreviewDTO, type MessageDTO } from '@signalix/contracts';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { ChatType, MessageType, type ChatDTO, type InChatSearchMatchDTO, type LinkPreviewDTO, type MessageDTO } from '@signalix/contracts';
 import { useChatStore, type TempMessage, type StoredMessage } from '../store/chat.store';
 import { useAuthStore } from '../store/auth.store';
-import { downloadFileAttachment } from '../lib/api-client';
+import { downloadFileAttachment, searchInChat } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
 import { formatLastSeen } from '../lib/presence';
 import { useSidebar } from '../lib/sidebar-context';
@@ -48,6 +48,37 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/**
+ * Wraps every case-insensitive occurrence of `term` inside `text` in a
+ * `<mark>` element so the in-chat search bar's matches are visible inside
+ * each TEXT bubble. Returns a React fragment so it can be rendered in
+ * place of the raw string.
+ */
+function highlightMatches(text: string, term: string): React.ReactNode {
+  if (!term) return text;
+  const lower = text.toLowerCase();
+  const tl = term.toLowerCase();
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  let idx = lower.indexOf(tl);
+  let key = 0;
+  while (idx !== -1) {
+    if (idx > last) parts.push(text.slice(last, idx));
+    parts.push(
+      <mark
+        key={`m-${key++}`}
+        className="bg-amber-300/60 dark:bg-amber-400/40 text-inherit rounded-[3px] px-0.5"
+      >
+        {text.slice(idx, idx + term.length)}
+      </mark>,
+    );
+    last = idx + term.length;
+    idx = lower.indexOf(tl, last);
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return <>{parts}</>;
 }
 
 function getReplyPreviewText(ciphertext: string, messageType?: MessageType): string {
@@ -153,9 +184,15 @@ interface BubbleProps {
   getSenderName: (userId: string) => string;
   onReply: (m: MessageDTO) => void;
   onForward: (m: MessageDTO) => void;
+  /** Highlight every occurrence of this string inside TEXT bubbles. */
+  searchTerm?: string;
+  /** This message is one of the in-chat search matches. */
+  isMatch?: boolean;
+  /** This message is the currently focused match — auto-scrolls into view. */
+  isActiveMatch?: boolean;
 }
 
-function MessageBubble({ m, currentUserId, chatId, isGroup, getSenderName, onReply, onForward }: BubbleProps) {
+function MessageBubble({ m, currentUserId, chatId, isGroup, getSenderName, onReply, onForward, searchTerm, isMatch, isActiveMatch }: BubbleProps) {
   const deleteMessageForMe = useChatStore((s) => s.deleteMessageForMe);
   const deleteMessageForEveryone = useChatStore((s) => s.deleteMessageForEveryone);
   const editMessage = useChatStore((s) => s.editMessage);
@@ -192,6 +229,12 @@ function MessageBubble({ m, currentUserId, chatId, isGroup, getSenderName, onRep
   const isImage = messageType === MessageType.IMAGE && !isDeletedForEveryone;
   const isFile = messageType === MessageType.FILE && !isDeletedForEveryone;
   const isAudio = messageType === MessageType.AUDIO && !isDeletedForEveryone;
+
+  // Auto-scroll the focused in-chat search match into view.
+  useEffect(() => {
+    if (!isActiveMatch) return;
+    rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [isActiveMatch]);
 
   useEffect(() => {
     if (!menuOpen && !reactOpen) return;
@@ -356,7 +399,17 @@ function MessageBubble({ m, currentUserId, chatId, isGroup, getSenderName, onRep
     : 'text-[#1d1d1f] dark:text-[#f5f5f7]';
 
   return (
-    <div ref={rowRef} className={`group flex items-end gap-1.5 w-full ${isMine ? 'justify-end' : 'justify-start'}`}>
+    <div
+      ref={rowRef}
+      data-message-id={messageId ?? undefined}
+      className={`group flex items-end gap-1.5 w-full ${isMine ? 'justify-end' : 'justify-start'} transition-shadow duration-500 ${
+        isActiveMatch
+          ? 'signalix-search-active'
+          : isMatch
+          ? 'signalix-search-match'
+          : ''
+      }`}
+    >
       {!isMine && actionColumn}
 
       {/* max-w percentages resolve against the row (w-full) so they're always
@@ -436,7 +489,9 @@ function MessageBubble({ m, currentUserId, chatId, isGroup, getSenderName, onRep
                   <VoiceBubbleSection text={text} time={time} isMine={isMine} state={state} />
                 ) : (
                   <>
-                    <p className="text-[15px] leading-relaxed break-words whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</p>
+                    <p className="text-[15px] leading-relaxed break-words whitespace-pre-wrap [overflow-wrap:anywhere]">
+                      {searchTerm ? highlightMatches(text, searchTerm) : text}
+                    </p>
                     {'linkPreview' in m && m.linkPreview && m.linkPreview.title && (
                       <LinkPreviewCard preview={m.linkPreview as LinkPreviewDTO} />
                     )}
@@ -522,6 +577,11 @@ export function MessageView({ chat }: Props) {
   const { setOpen } = useSidebar();
 
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const targetMessageId = searchParams?.get('m') ?? null;
+  // Track whether we've already focused this target so we don't re-scroll
+  // on every message-list update.
+  const focusedTargetRef = useRef<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [deletingChat, setDeletingChat] = useState(false);
@@ -568,8 +628,34 @@ export function MessageView({ chat }: Props) {
   }, [messages, currentUserId, chat.id, markRead]);
 
   useEffect(() => {
+    // When the user came in via a search-result click (`?m=<id>`), skip
+    // the auto-scroll-to-bottom for that target. The dedicated effect
+    // below scrolls + highlights instead.
+    if (targetMessageId && focusedTargetRef.current !== targetMessageId) return;
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length]);
+  }, [messages.length, targetMessageId]);
+
+  // Scroll-to + highlight a specific message when arriving via search.
+  // Runs once the target's row mounts (after messages load).
+  useEffect(() => {
+    if (!targetMessageId) return;
+    if (focusedTargetRef.current === targetMessageId) return;
+    if (!listRef.current) return;
+    const row = listRef.current.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(targetMessageId)}"]`);
+    if (!row) return; // not in the loaded page yet — give up silently for now
+    focusedTargetRef.current = targetMessageId;
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Transient highlight ring; cleared after ~2 s.
+    row.classList.add('signalix-search-hit');
+    const t = window.setTimeout(() => row.classList.remove('signalix-search-hit'), 2200);
+    return () => window.clearTimeout(t);
+  }, [targetMessageId, messages]);
+
+  // Reset our "focused" memo when the user navigates to a different target
+  // or away from the search context entirely.
+  useEffect(() => {
+    if (!targetMessageId) focusedTargetRef.current = null;
+  }, [targetMessageId]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -632,11 +718,152 @@ export function MessageView({ chat }: Props) {
     setForwardingMessage(null);
   }
 
+  // ── In-chat search ───────────────────────────────────────────────────────
+  const [searchMode, setSearchMode] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchMatches, setSearchMatches] = useState<InChatSearchMatchDTO[]>([]);
+  const [activeMatchIdx, setActiveMatchIdx] = useState(0);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  // Sequence number used to ignore stale responses if the user kept typing.
+  const searchSeqRef = useRef(0);
+
+  function openSearch() {
+    setSearchMode(true);
+    setMenuOpen(false);
+    // Focus on next tick so the input is mounted.
+    setTimeout(() => searchInputRef.current?.focus(), 0);
+  }
+
+  function closeSearch() {
+    setSearchMode(false);
+    setSearchQuery('');
+    setSearchMatches([]);
+    setActiveMatchIdx(0);
+    setSearchLoading(false);
+  }
+
+  // Debounced fetch when the query changes. Draft chats don't have a real
+  // chatId yet, so we skip them entirely.
+  useEffect(() => {
+    if (!searchMode) return;
+    const q = searchQuery.trim();
+    if (q.length < 2 || isDraft) {
+      setSearchMatches([]);
+      setActiveMatchIdx(0);
+      setSearchLoading(false);
+      return;
+    }
+    setSearchLoading(true);
+    const seq = ++searchSeqRef.current;
+    const handle = window.setTimeout(async () => {
+      try {
+        const res = await searchInChat(chat.id, q, { limit: 100 });
+        if (searchSeqRef.current !== seq) return; // stale
+        setSearchMatches(res.matches);
+        setActiveMatchIdx(0);
+      } catch {
+        if (searchSeqRef.current === seq) setSearchMatches([]);
+      } finally {
+        if (searchSeqRef.current === seq) setSearchLoading(false);
+      }
+    }, 220);
+    return () => window.clearTimeout(handle);
+  }, [searchQuery, searchMode, chat.id, isDraft]);
+
+  function gotoNextMatch() {
+    if (searchMatches.length === 0) return;
+    setActiveMatchIdx((i) => (i + 1) % searchMatches.length);
+  }
+  function gotoPrevMatch() {
+    if (searchMatches.length === 0) return;
+    setActiveMatchIdx((i) => (i - 1 + searchMatches.length) % searchMatches.length);
+  }
+
+  function handleSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Escape') { closeSearch(); return; }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (e.shiftKey) gotoPrevMatch();
+      else gotoNextMatch();
+    }
+  }
+
+  // Build the lookup structures for the bubbles. Memoising avoids rebuilding
+  // a Set on every render when matches haven't changed.
+  const matchIdSet = useRef<Set<string>>(new Set());
+  matchIdSet.current = new Set(searchMatches.map((m) => m.messageId));
+  const activeMatchId = searchMatches[activeMatchIdx]?.messageId ?? null;
+  // The query we want bubbles to inline-highlight. Empty string disables it.
+  const inlineHighlight = searchMode && searchQuery.trim().length >= 2 ? searchQuery.trim() : '';
+
   return (
     <div className="flex flex-col h-full min-h-0">
 
-      {/* ── Header ── */}
+      {/* ── Header ──
+          When in-chat search is active the entire header morphs into a
+          search bar. iMessage / Telegram-style "X of Y" navigation with
+          ↑/↓ buttons and a close (✕) that restores the normal header. */}
       <div className="relative z-20 flex items-center gap-3 px-4 py-3 border-b border-white/40 dark:border-white/[0.05] bg-white/55 dark:bg-white/[0.04] backdrop-blur-2xl flex-shrink-0">
+        {searchMode ? (
+          <>
+            <button
+              onClick={closeSearch}
+              aria-label="Close search"
+              title="Close search"
+              className="flex items-center justify-center w-9 h-9 -ml-1 rounded-2xl text-[#8e8e93] dark:text-[#9a9aa3] hover:bg-white/50 dark:hover:bg-white/[0.06] hover:text-[#1d1d1f] dark:hover:text-[#f5f5f7] transition-all duration-200 hover:scale-[1.04] active:scale-[0.97]"
+            >
+              <XMarkIcon />
+            </button>
+
+            <div className="flex-1 flex items-center rounded-full bg-white/55 dark:bg-white/[0.06] backdrop-blur-xl px-4 py-1.5 border border-white/60 dark:border-white/[0.06] focus-within:bg-white/75 dark:focus-within:bg-white/[0.09] focus-within:border-white/80 transition-all duration-200">
+              <span className="flex-shrink-0 text-[#8e8e93] dark:text-[#9a9aa3] mr-2">
+                <SearchIcon />
+              </span>
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                placeholder={isGroup ? 'Search this group…' : 'Search this chat…'}
+                className="flex-1 min-w-0 bg-transparent text-[14px] text-[#1d1d1f] dark:text-[#f5f5f7] placeholder-[#8e8e93] dark:placeholder-[#9a9aa3] focus:outline-none"
+              />
+              {/* Match counter */}
+              {searchQuery.trim().length >= 2 && (
+                <span className="flex-shrink-0 ml-2 text-[12px] tabular-nums text-[#8e8e93] dark:text-[#9a9aa3]">
+                  {searchLoading
+                    ? '…'
+                    : searchMatches.length === 0
+                    ? 'No matches'
+                    : `${activeMatchIdx + 1} of ${searchMatches.length}`}
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-0.5">
+              <button
+                onClick={gotoPrevMatch}
+                disabled={searchMatches.length === 0}
+                aria-label="Previous match"
+                title="Previous (Shift+Enter)"
+                className="w-9 h-9 flex items-center justify-center rounded-2xl text-[#8e8e93] dark:text-[#9a9aa3] hover:bg-white/50 dark:hover:bg-white/[0.06] hover:text-[#1d1d1f] dark:hover:text-[#f5f5f7] disabled:opacity-40 disabled:hover:bg-transparent transition-all duration-200 hover:scale-[1.04] active:scale-[0.97]"
+              >
+                <ChevronUpIcon />
+              </button>
+              <button
+                onClick={gotoNextMatch}
+                disabled={searchMatches.length === 0}
+                aria-label="Next match"
+                title="Next (Enter)"
+                className="w-9 h-9 flex items-center justify-center rounded-2xl text-[#8e8e93] dark:text-[#9a9aa3] hover:bg-white/50 dark:hover:bg-white/[0.06] hover:text-[#1d1d1f] dark:hover:text-[#f5f5f7] disabled:opacity-40 disabled:hover:bg-transparent transition-all duration-200 hover:scale-[1.04] active:scale-[0.97]"
+              >
+                <ChevronDownHeaderIcon />
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
         {/* Mobile back */}
         <button
           onClick={() => {
@@ -678,9 +905,11 @@ export function MessageView({ chat }: Props) {
             <UserCircleIcon />
           </button>
           <button
-            disabled
-            title="Search (coming soon)"
-            className="w-9 h-9 flex items-center justify-center rounded-2xl text-[#c7c7cc] dark:text-[#4a4a55] cursor-not-allowed"
+            onClick={openSearch}
+            disabled={isDraft}
+            title={isDraft ? 'Send a message first' : 'Search in chat'}
+            aria-label="Search in chat"
+            className="w-9 h-9 flex items-center justify-center rounded-2xl text-[#8e8e93] dark:text-[#9a9aa3] hover:bg-white/50 dark:hover:bg-white/[0.06] hover:text-[#1d1d1f] dark:hover:text-[#f5f5f7] disabled:opacity-40 disabled:hover:bg-transparent transition-all duration-200 hover:scale-[1.04] active:scale-[0.97]"
           >
             <SearchIcon />
           </button>
@@ -729,6 +958,8 @@ export function MessageView({ chat }: Props) {
             )}
           </div>
         </div>
+          </>
+        )}
       </div>
 
       {/* ── Message list ── */}
@@ -746,18 +977,26 @@ export function MessageView({ chat }: Props) {
             <p className="text-[13px] text-[#8e8e93] dark:text-[#9a9aa3] mt-1">Start the conversation.</p>
           </div>
         )}
-        {messages.map((m, i) => (
-          <MessageBubble
-            key={'id' in m ? m.id : `tmp-${i}`}
-            m={m}
-            currentUserId={currentUserId}
-            chatId={chat.id}
-            isGroup={isGroup}
-            getSenderName={getSenderName}
-            onReply={handleReply}
-            onForward={handleForward}
-          />
-        ))}
+        {messages.map((m, i) => {
+          const id = 'id' in m ? m.id : undefined;
+          const isMatch = id ? matchIdSet.current.has(id) : false;
+          const isActiveMatch = id ? id === activeMatchId : false;
+          return (
+            <MessageBubble
+              key={'id' in m ? m.id : `tmp-${i}`}
+              m={m}
+              currentUserId={currentUserId}
+              chatId={chat.id}
+              isGroup={isGroup}
+              getSenderName={getSenderName}
+              onReply={handleReply}
+              onForward={handleForward}
+              searchTerm={isMatch ? inlineHighlight : ''}
+              isMatch={isMatch}
+              isActiveMatch={isActiveMatch}
+            />
+          );
+        })}
         <div ref={bottomRef} />
       </div>
 
@@ -934,6 +1173,22 @@ function EmojiSmileMenuIcon() {
 function ChevronDownIcon() {
   return (
     <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 fill-none stroke-current stroke-[2]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="3 5 8 11 13 5" />
+    </svg>
+  );
+}
+
+function ChevronUpIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="w-4 h-4 fill-none stroke-current stroke-[2]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="3 11 8 5 13 11" />
+    </svg>
+  );
+}
+
+function ChevronDownHeaderIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="w-4 h-4 fill-none stroke-current stroke-[2]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <polyline points="3 5 8 11 13 5" />
     </svg>
   );

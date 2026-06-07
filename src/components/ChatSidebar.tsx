@@ -3,11 +3,12 @@
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ChatType, type ChatDTO, type PublicUserDTO } from '@signalix/contracts';
+import { ChatType, type ChatDTO, type MessageSearchResultDTO, type PublicUserDTO } from '@signalix/contracts';
 import { useChatStore, DRAFT_PREFIX } from '../store/chat.store';
 import { useAuthStore } from '../store/auth.store';
-import { getMe, searchUsers } from '../lib/api-client';
+import { getMe, searchUsers, searchMessages } from '../lib/api-client';
 import { useSidebar } from '../lib/sidebar-context';
+import { formatChatTime } from '../lib/avatar';
 import { ChatItem } from './ChatItem';
 import { Avatar } from './Avatar';
 import { PresenceIndicator } from './PresenceIndicator';
@@ -29,9 +30,17 @@ export function ChatSidebar() {
   const [currentUser, setCurrentUser] = useState<{ id: string; displayName?: string; username: string; avatarUrl?: string | null } | null>(null);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<PublicUserDTO[]>([]);
+  const [messageResults, setMessageResults] = useState<MessageSearchResultDTO[]>([]);
+  const [messageNextCursor, setMessageNextCursor] = useState<string | undefined>(undefined);
+  const [messageHasMore, setMessageHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [searched, setSearched] = useState(false);
   const [searching, startSearch] = useTransition();
   const searchRef = useRef<HTMLInputElement>(null);
+  const resultsScrollRef = useRef<HTMLDivElement>(null);
+  // Tracks the query we issued the most recent request for. Stale responses
+  // (user typed something newer mid-flight) are discarded by comparing.
+  const activeQueryRef = useRef<string>('');
   const [groupModalOpen, setGroupModalOpen] = useState(false);
 
   const currentUserId = session?.userId ?? '';
@@ -45,22 +54,81 @@ export function ChatSidebar() {
     const val = e.target.value;
     setQuery(val);
     if (!val.trim()) { clearSearch(); return; }
+    const q = val.trim();
+    activeQueryRef.current = q;
+    // Reset message paging on every new query — the cursor only makes
+    // sense relative to one specific search term.
+    setMessageNextCursor(undefined);
+    setMessageHasMore(false);
     startSearch(async () => {
-      try {
-        const { users } = await searchUsers(val.trim());
-        setResults(users);
-        setSearched(true);
-      } catch {
-        setResults([]);
-        setSearched(true);
-      }
+      // Fan out user + message search in parallel. Message search requires
+      // ≥2 chars (API DTO enforces); for shorter queries we skip it so the
+      // people-search UX still works on a single character.
+      const emptyPage = { results: [] as MessageSearchResultDTO[], pagination: { hasMore: false, nextCursor: undefined as string | undefined } };
+      const [users, msgPage] = await Promise.all([
+        searchUsers(q).then((r) => r.users).catch(() => [] as PublicUserDTO[]),
+        q.length >= 2
+          ? searchMessages(q, { limit: 12 }).catch(() => emptyPage)
+          : Promise.resolve(emptyPage),
+      ]);
+      // Discard if the user kept typing while we were waiting.
+      if (activeQueryRef.current !== q) return;
+      setResults(users);
+      setMessageResults(msgPage.results);
+      setMessageHasMore(msgPage.pagination.hasMore);
+      setMessageNextCursor(msgPage.pagination.nextCursor ?? undefined);
+      setSearched(true);
+      // Reset the scroll container to top after a new search.
+      if (resultsScrollRef.current) resultsScrollRef.current.scrollTop = 0;
     });
   }
 
   function clearSearch() {
+    activeQueryRef.current = '';
     setQuery('');
     setResults([]);
+    setMessageResults([]);
+    setMessageNextCursor(undefined);
+    setMessageHasMore(false);
+    setLoadingMore(false);
     setSearched(false);
+  }
+
+  async function loadMoreMessageResults() {
+    if (loadingMore || !messageHasMore || !messageNextCursor) return;
+    const q = activeQueryRef.current;
+    if (!q || q.length < 2) return;
+    setLoadingMore(true);
+    try {
+      const page = await searchMessages(q, { limit: 12, cursor: messageNextCursor });
+      // Drop the page if the user moved on to a different query mid-flight.
+      if (activeQueryRef.current !== q) return;
+      setMessageResults((prev) => [...prev, ...page.results]);
+      setMessageHasMore(page.pagination.hasMore);
+      setMessageNextCursor(page.pagination.nextCursor);
+    } catch {
+      // Best-effort; leave existing state intact.
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  function handleResultsScroll(e: React.UIEvent<HTMLDivElement>) {
+    if (!messageHasMore || loadingMore) return;
+    const el = e.currentTarget;
+    // Fire when the user gets within 120 px of the bottom; gives the next
+    // page time to render before they actually reach the edge.
+    if (el.scrollHeight - (el.scrollTop + el.clientHeight) < 120) {
+      void loadMoreMessageResults();
+    }
+  }
+
+  function openMessageResult(r: MessageSearchResultDTO) {
+    // Pass the target messageId via query string. MessageView reads `?m` and
+    // scrolls / highlights once the messages page has loaded.
+    router.push(`/chats/${r.chatId}?m=${encodeURIComponent(r.messageId)}`);
+    clearSearch();
+    setOpen(false);
   }
 
   function startNewChat(user: PublicUserDTO) {
@@ -166,46 +234,107 @@ export function ChatSidebar() {
 
       {/* ── Search results ── */}
       {isSearching && (
-        <div className="flex-1 min-h-0 overflow-y-auto px-3 space-y-0.5">
+        <div
+          ref={resultsScrollRef}
+          onScroll={handleResultsScroll}
+          className="flex-1 min-h-0 overflow-y-auto px-3 space-y-0.5"
+        >
           {searching && (
             <p className="text-[12px] text-[#aeaeb2] px-2 py-2">Searching…</p>
           )}
-          {!searching && searched && results.length === 0 && (
+          {!searching && searched && results.length === 0 && messageResults.length === 0 && (
             <div className="flex flex-col items-center justify-center py-12 gap-2 text-center">
               <NoResultsIcon />
-              <p className="text-[14px] font-medium text-[#1d1d1f] dark:text-[#f5f5f7]">No users found</p>
-              <p className="text-[12px] text-[#8e8e93]">Try a different username</p>
+              <p className="text-[14px] font-medium text-[#1d1d1f] dark:text-[#f5f5f7]">No results</p>
+              <p className="text-[12px] text-[#8e8e93]">Try a different username or phrase</p>
             </div>
           )}
-          {results.map((user) => {
-            const name = user.displayName ?? user.username;
-            const isOnline = (presence[user.id] ?? 'offline') === 'online';
-            return (
-              <button
-                key={user.id}
-                type="button"
-                onClick={() => startNewChat(user)}
-                className="w-full flex items-center gap-3 rounded-2xl px-3 py-2.5 hover:bg-white/50 dark:hover:bg-white/[0.05] transition-all duration-200 hover:scale-[1.005] active:scale-[0.99] text-left"
-              >
-                <div className="relative flex-shrink-0">
-                  <Avatar name={name} seed={user.id} avatarUrl={user.avatarUrl} size="md" />
-                  {isOnline && (
-                    <PresenceIndicator
-                      online
-                      className="absolute -bottom-0.5 -right-0.5 ring-2 ring-white/80 dark:ring-[#1c1c24]/80"
+
+          {results.length > 0 && (
+            <>
+              <p className="px-2 pt-2 pb-1 text-[11px] font-semibold text-[#8e8e93] dark:text-[#9a9aa3] uppercase tracking-wide">People</p>
+              {results.map((user) => {
+                const name = user.displayName ?? user.username;
+                const isOnline = (presence[user.id] ?? 'offline') === 'online';
+                return (
+                  <button
+                    key={user.id}
+                    type="button"
+                    onClick={() => startNewChat(user)}
+                    className="w-full flex items-center gap-3 rounded-2xl px-3 py-2.5 hover:bg-white/50 dark:hover:bg-white/[0.05] transition-all duration-200 hover:scale-[1.005] active:scale-[0.99] text-left"
+                  >
+                    <div className="relative flex-shrink-0">
+                      <Avatar name={name} seed={user.id} avatarUrl={user.avatarUrl} size="md" />
+                      {isOnline && (
+                        <PresenceIndicator
+                          online
+                          className="absolute -bottom-0.5 -right-0.5 ring-2 ring-white/80 dark:ring-[#1c1c24]/80"
+                        />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[14px] font-medium truncate text-[#1d1d1f] dark:text-[#f5f5f7]">{name}</p>
+                      <p className="text-[12px] text-[#8e8e93] dark:text-[#9a9aa3] truncate">@{user.username}</p>
+                    </div>
+                    {isOnline && (
+                      <span className="text-[11px] font-medium text-emerald-500 flex-shrink-0">Online</span>
+                    )}
+                  </button>
+                );
+              })}
+            </>
+          )}
+
+          {messageResults.length > 0 && (
+            <>
+              <p className={`px-2 ${results.length > 0 ? 'pt-3' : 'pt-2'} pb-1 text-[11px] font-semibold text-[#8e8e93] dark:text-[#9a9aa3] uppercase tracking-wide`}>Messages</p>
+              {messageResults.map((r) => (
+                <button
+                  key={r.messageId}
+                  type="button"
+                  onClick={() => openMessageResult(r)}
+                  className="w-full flex items-start gap-3 rounded-2xl px-3 py-2.5 hover:bg-white/50 dark:hover:bg-white/[0.05] transition-all duration-200 active:scale-[0.99] text-left"
+                >
+                  <div className="flex-shrink-0 mt-0.5">
+                    <Avatar
+                      name={r.chatLabel || 'Chat'}
+                      seed={r.chatId}
+                      avatarUrl={r.chatAvatarUrl}
+                      size="md"
                     />
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[14px] font-medium truncate text-[#1d1d1f] dark:text-[#f5f5f7]">{name}</p>
-                  <p className="text-[12px] text-[#8e8e93] dark:text-[#9a9aa3] truncate">@{user.username}</p>
-                </div>
-                {isOnline && (
-                  <span className="text-[11px] font-medium text-emerald-500 flex-shrink-0">Online</span>
-                )}
-              </button>
-            );
-          })}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-2">
+                      <p className="text-[14px] font-semibold truncate text-[#1d1d1f] dark:text-[#f5f5f7]">{r.chatLabel || 'Chat'}</p>
+                      <span className="text-[11px] text-[#8e8e93] dark:text-[#9a9aa3] flex-shrink-0 tabular-nums ml-auto">
+                        {formatChatTime(r.createdAt)}
+                      </span>
+                    </div>
+                    {r.chatType === ChatType.GROUP && (
+                      <p className="text-[12px] text-[#8e8e93] dark:text-[#9a9aa3] truncate">
+                        {r.senderName}
+                      </p>
+                    )}
+                    <p className="text-[13px] text-[#1d1d1f] dark:text-[#d1d1d6] mt-0.5 line-clamp-2 [overflow-wrap:anywhere]">
+                      {renderSnippet(r.ciphertext, query.trim())}
+                    </p>
+                  </div>
+                </button>
+              ))}
+              {loadingMore && (
+                <p className="text-[11px] text-[#8e8e93] dark:text-[#9a9aa3] px-2 py-3 text-center">Loading more…</p>
+              )}
+              {!loadingMore && messageHasMore && (
+                <button
+                  type="button"
+                  onClick={() => void loadMoreMessageResults()}
+                  className="w-full text-[12px] text-[#007aff] dark:text-[#0a84ff] font-medium px-2 py-3 hover:opacity-80 transition-opacity"
+                >
+                  Load more
+                </button>
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -306,6 +435,43 @@ function ComposeIcon() {
       {/* Plus sign */}
       <path d="M10 6v5M7.5 8.5h5" />
     </svg>
+  );
+}
+
+/**
+ * Returns the message snippet with the matched substring wrapped in a
+ * highlight span. When the match sits deep into a long body, we window
+ * the snippet around the match instead of always slicing from the start.
+ */
+function renderSnippet(text: string, q: string): React.ReactNode {
+  if (!q) return text;
+  const lower = text.toLowerCase();
+  const ql = q.toLowerCase();
+  const idx = lower.indexOf(ql);
+  if (idx === -1) {
+    const cut = text.length > 160 ? `${text.slice(0, 160)}…` : text;
+    return cut;
+  }
+  let start = 0;
+  let end = text.length;
+  const WINDOW = 160;
+  if (text.length > WINDOW && idx > 60) {
+    start = Math.max(0, idx - 40);
+    end = Math.min(text.length, start + WINDOW);
+  } else if (text.length > WINDOW) {
+    end = WINDOW;
+  }
+  const prefix = start > 0 ? '…' : '';
+  const suffix = end < text.length ? '…' : '';
+  const before = text.slice(start, idx);
+  const match = text.slice(idx, idx + q.length);
+  const after = text.slice(idx + q.length, end);
+  return (
+    <>
+      {prefix}{before}
+      <mark className="bg-[#007aff]/20 dark:bg-[#0a84ff]/25 text-[#1d1d1f] dark:text-[#f5f5f7] rounded-[3px] px-0.5">{match}</mark>
+      {after}{suffix}
+    </>
   );
 }
 

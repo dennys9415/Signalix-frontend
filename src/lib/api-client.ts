@@ -20,6 +20,8 @@ import type {
   ResendVerificationResponse,
   ResetPasswordResponse,
   GroupAvatarUploadResponse,
+  SearchInChatResponse,
+  SearchMessagesResponse,
   TransferGroupOwnershipRequest,
   TransferGroupOwnershipResponse,
   UpdateGroupChatRequest,
@@ -162,6 +164,27 @@ export function searchUsers(q: string, limit?: number): Promise<UserSearchRespon
   const qs = new URLSearchParams({ q });
   if (limit !== undefined) qs.set('limit', String(limit));
   return authed<UserSearchResponse>('GET', `/api/v1/users/search?${qs.toString()}`);
+}
+
+export function searchMessages(
+  q: string,
+  opts: { limit?: number; cursor?: string } = {},
+): Promise<SearchMessagesResponse> {
+  const qs = new URLSearchParams({ q });
+  if (opts.limit !== undefined) qs.set('limit', String(opts.limit));
+  if (opts.cursor !== undefined) qs.set('cursor', opts.cursor);
+  return authed<SearchMessagesResponse>('GET', `/api/v1/messages/search?${qs.toString()}`);
+}
+
+export function searchInChat(
+  chatId: string,
+  q: string,
+  opts: { limit?: number; cursor?: string } = {},
+): Promise<SearchInChatResponse> {
+  const qs = new URLSearchParams({ q });
+  if (opts.limit !== undefined) qs.set('limit', String(opts.limit));
+  if (opts.cursor !== undefined) qs.set('cursor', opts.cursor);
+  return authed<SearchInChatResponse>('GET', `/api/v1/chats/${encodeURIComponent(chatId)}/search?${qs.toString()}`);
 }
 
 export function getMe(): Promise<UserProfileResponse> {

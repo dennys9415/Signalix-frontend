@@ -1,6 +1,6 @@
 # Signalix Frontend
 
-**Version: v0.7.0**
+**Version: v0.7.1**
 
 Next.js 15 chat client for Signalix. Direct + group chats, text / image / file / **voice note** messages, reactions, replies, forwards, edit, delete-for-me / for-everyone, link previews, typing indicators, presence, avatar upload, draft chat UX, and the full auth stack (local + Google / GitHub / Apple OAuth). Installable as a Progressive Web App with Web Push notifications.
 
@@ -268,6 +268,26 @@ Available since v0.6.1. Composer mic button replaces the send button while the t
 - No waveform rendering, no playback speed, no scrubbing (seek-to-position) — only play/pause + progress.
 - Duration is recorder-reported; once `<audio>` metadata loads, the player overrides it with the file's real duration.
 - iOS requires the user to interact before mic capture works (browser policy).
+
+## v0.7.1 changelog
+
+### Added
+- **Message search in the sidebar** — the existing search input fans out to both `searchUsers` and the new `searchMessages` endpoint in parallel. Results panel shows a **People** section and a new **Messages** section with chat label / avatar, sender name (group chats only), timestamp and snippet. Match is highlighted inline with a translucent blue background; the snippet windows around the match when it's deep into a long body.
+- **Sidebar pagination scroll** — message-results list is now infinite-scroll. The scrollable container watches its scroll position; when within 120 px of the bottom, fetches the next page via `searchMessages(q, { limit: 12, cursor })`. New state tracks `messageNextCursor`, `messageHasMore`, `loadingMore`. Stale responses are discarded if the user typed something newer mid-flight (tracked by an `activeQueryRef`). A "Load more" fallback button shows below the list for browsers without smooth scroll watching. Each new query resets paging and scrolls the container back to top.
+- **Click-through to message** — selecting a message result navigates to `/chats/<chatId>?m=<messageId>`. `MessageView` reads the `m` query param, scrolls the row into view (`block: 'center'`), and applies a transient blue ring (`signalix-search-hit` utility in `globals.css`) that fades after ~2 s. Each bubble row carries a `data-message-id` attribute.
+- **In-chat search (iMessage-style)** — the magnifier icon in the chat header (previously disabled) is now wired. Tapping it morphs the entire header into a search bar: pill input + "X of Y" counter + ↑ / ↓ navigation + ✕ close. Same layout works on desktop and mobile (replaces the header title on mobile).
+  - Debounced (220 ms) call to `GET /chats/:chatId/search`.
+  - Keyboard: `Enter` = next, `Shift+Enter` = prev, `Esc` = close.
+  - Each matching bubble gets an **amber ring** (`signalix-search-match`); the focused match gets a **stronger blue ring with glow** (`signalix-search-active`) and auto-scrolls into view via a `useEffect` on `isActiveMatch`.
+  - TEXT bubbles render every occurrence of the query inline as `<mark>` (`highlightMatches` helper).
+  - File bubbles still match (filename is substring-searched server-side via the FILE JSON) but get the row-level ring only — inline highlight inside the FileCard isn't done yet.
+  - Drafts skip search entirely (no real chatId).
+- **`lib/api-client.ts → searchInChat(chatId, q, { limit?, cursor? })`** — typed wrapper around `GET /api/v1/chats/:chatId/search`.
+
+### Known limitations (v0.7.1)
+- Scroll-to-message (global) only works if the target is in the loaded page (default 50 newest messages). Older messages: open the chat, scroll up manually.
+- In-chat search fetches up to 100 matches at a time. For chats with more than 100 hits the rest live behind `nextCursor`; not yet wired into the UI (the existing match navigation operates on the current batch).
+- Inline `<mark>` highlight only on TEXT bubbles. FILE/voice bubbles get the row-level ring only.
 
 ## v0.7.0 changelog
 
