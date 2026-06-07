@@ -64,7 +64,7 @@ export function ChatItem({ chat, currentUserId, presence, active, lastMessage, u
     <>
       {/* Avatar with presence dot */}
       <div className="relative flex-shrink-0">
-        <Avatar name={name} seed={seed} avatarUrl={isGroup ? undefined : other?.user?.avatarUrl} size="md" />
+        <Avatar name={name} seed={seed} avatarUrl={isGroup ? chat.avatarUrl : other?.user?.avatarUrl} size="md" />
         {isOnline && (
           <PresenceIndicator
             online

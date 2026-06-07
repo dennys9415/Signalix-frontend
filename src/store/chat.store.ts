@@ -71,7 +71,10 @@ interface ChatState {
   createGroupChat: (title: string, memberIds: string[]) => Promise<string>;
   addGroupMembers: (chatId: string, userIds: string[]) => Promise<void>;
   removeGroupMember: (chatId: string, userId: string) => Promise<void>;
-  updateGroupChat: (chatId: string, title: string) => Promise<void>;
+  updateGroupChat: (chatId: string, patch: { title?: string; description?: string | null }) => Promise<void>;
+  uploadGroupAvatar: (chatId: string, file: File) => Promise<void>;
+  removeGroupAvatar: (chatId: string) => Promise<void>;
+  transferGroupOwnership: (chatId: string, newOwnerId: string) => Promise<void>;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -679,10 +682,45 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  async updateGroupChat(chatId, title) {
-    const { title: newTitle } = await api.updateGroupChat(chatId, { title });
+  async updateGroupChat(chatId, patch) {
+    const result = await api.updateGroupChat(chatId, patch);
     set((s) => ({
-      chats: s.chats.map((c) => c.id === chatId ? { ...c, title: newTitle } : c),
+      chats: s.chats.map((c) => {
+        if (c.id !== chatId) return c;
+        const next = { ...c };
+        if (result.title !== undefined) next.title = result.title;
+        if (result.description !== undefined) {
+          // `null` clears the field locally; spread above carried over the old value.
+          if (result.description === null) delete next.description;
+          else next.description = result.description;
+        }
+        return next;
+      }),
+    }));
+  },
+
+  async uploadGroupAvatar(chatId, file) {
+    const { avatarUrl } = await api.uploadGroupAvatar(chatId, file);
+    set((s) => ({
+      chats: s.chats.map((c) => c.id === chatId ? { ...c, avatarUrl } : c),
+    }));
+  },
+
+  async removeGroupAvatar(chatId) {
+    await api.removeGroupAvatar(chatId);
+    set((s) => ({
+      chats: s.chats.map((c) => {
+        if (c.id !== chatId) return c;
+        const { avatarUrl: _drop, ...rest } = c;
+        return rest;
+      }),
+    }));
+  },
+
+  async transferGroupOwnership(chatId, newOwnerId) {
+    const { participants } = await api.transferGroupOwnership(chatId, { newOwnerId });
+    set((s) => ({
+      chats: s.chats.map((c) => c.id === chatId ? { ...c, participants } : c),
     }));
   },
 }));

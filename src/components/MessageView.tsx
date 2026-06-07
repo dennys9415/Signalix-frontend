@@ -125,7 +125,7 @@ function ForwardModal({ ciphertext, chats, currentUserId, onForward, onClose }: 
             const name = getChatName(c);
             const other = isGroup ? undefined : c.participants.find((p) => p.userId !== currentUserId);
             const seed = isGroup ? c.id : (other?.userId ?? c.id);
-            const avatarUrl = isGroup ? undefined : (other?.user?.avatarUrl ?? null);
+            const avatarUrl = isGroup ? (c.avatarUrl ?? null) : (other?.user?.avatarUrl ?? null);
             return (
               <button
                 key={c.id}
@@ -543,7 +543,7 @@ export function MessageView({ chat }: Props) {
     : (other?.user?.displayName ?? other?.user?.username ?? 'Unknown');
   const otherUsername = other?.user?.username ?? '';
   const otherSeed = isGroup ? chat.id : (other?.userId ?? chat.id);
-  const otherAvatarUrl = isGroup ? undefined : other?.user?.avatarUrl;
+  const otherAvatarUrl = isGroup ? chat.avatarUrl : other?.user?.avatarUrl;
   const isOnline = !isGroup && other ? (presence[other.userId] ?? 'offline') === 'online' : false;
 
   function getSenderName(userId: string): string {

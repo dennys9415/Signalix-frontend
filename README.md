@@ -1,6 +1,6 @@
 # Signalix Frontend
 
-**Version: v0.6.1**
+**Version: v0.7.0**
 
 Next.js 15 chat client for Signalix. Direct + group chats, text / image / file / **voice note** messages, reactions, replies, forwards, edit, delete-for-me / for-everyone, link previews, typing indicators, presence, avatar upload, draft chat UX, and the full auth stack (local + Google / GitHub / Apple OAuth). Installable as a Progressive Web App with Web Push notifications.
 
@@ -268,6 +268,20 @@ Available since v0.6.1. Composer mic button replaces the send button while the t
 - No waveform rendering, no playback speed, no scrubbing (seek-to-position) — only play/pause + progress.
 - Duration is recorder-reported; once `<audio>` metadata loads, the player overrides it with the file's real duration.
 - iOS requires the user to interact before mic capture works (browser policy).
+
+## v0.7.0 changelog
+
+### Added
+- **Group profile (modal)** — `GroupInfoModal` expanded into a full group-details surface with:
+  - **Group avatar** — Avatar component now consumes `chat.avatarUrl`; pencil/camera badge over the avatar opens an upload/remove menu (owner / admin only). Initials fallback when no avatar set, keyed by `chat.id` for stable colour. Same surface is used by `ChatItem` (sidebar row) and the chat header in `MessageView` so the avatar shows up everywhere instantly after upload.
+  - **Editable description** — owner/admin can Add / Edit / clear a description (max 500 chars, plain text, multiline). Empty value clears server-side.
+  - **Transfer ownership** — owner-only "Transfer ownership" entry on each non-owner member's per-row menu. Old owner becomes admin.
+  - Refreshed per-member action menu (three-dot) hosting Transfer and Remove actions side by side instead of an inline trash icon.
+- **Store actions** — `uploadGroupAvatar`, `removeGroupAvatar`, `transferGroupOwnership`; `updateGroupChat` signature widened from `(chatId, title)` to `(chatId, patch)` where `patch = { title?, description? }`.
+- **API client helpers** — `uploadGroupAvatar(chatId, file)`, `removeGroupAvatar(chatId)`, `transferGroupOwnership(chatId, { newOwnerId })`.
+
+### Changed
+- `MessageView` header and `ChatItem` sidebar row read `chat.avatarUrl` for groups (no fallback to initials when one is set). `ForwardModal` chat picker also surfaces the group avatar.
 
 ## v0.6.1 changelog
 

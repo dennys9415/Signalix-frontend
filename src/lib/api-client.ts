@@ -19,6 +19,9 @@ import type {
   RemoveGroupMemberResponse,
   ResendVerificationResponse,
   ResetPasswordResponse,
+  GroupAvatarUploadResponse,
+  TransferGroupOwnershipRequest,
+  TransferGroupOwnershipResponse,
   UpdateGroupChatRequest,
   UpdateGroupChatResponse,
   UserProfileResponse,
@@ -266,6 +269,30 @@ export function removeGroupMember(chatId: string, userId: string): Promise<Remov
 
 export function updateGroupChat(chatId: string, dto: UpdateGroupChatRequest): Promise<UpdateGroupChatResponse> {
   return authed<UpdateGroupChatResponse>('PATCH', `/api/v1/chats/${encodeURIComponent(chatId)}`, dto);
+}
+
+export function uploadGroupAvatar(chatId: string, file: File): Promise<GroupAvatarUploadResponse> {
+  const form = new FormData();
+  form.append('avatar', file);
+  return authedUpload<GroupAvatarUploadResponse>(
+    `/api/v1/chats/${encodeURIComponent(chatId)}/avatar`,
+    form,
+  );
+}
+
+export function removeGroupAvatar(chatId: string): Promise<{ chatId: string }> {
+  return authed<{ chatId: string }>('DELETE', `/api/v1/chats/${encodeURIComponent(chatId)}/avatar`);
+}
+
+export function transferGroupOwnership(
+  chatId: string,
+  dto: TransferGroupOwnershipRequest,
+): Promise<TransferGroupOwnershipResponse> {
+  return authed<TransferGroupOwnershipResponse>(
+    'POST',
+    `/api/v1/chats/${encodeURIComponent(chatId)}/transfer-ownership`,
+    dto,
+  );
 }
 
 export function uploadFile(
