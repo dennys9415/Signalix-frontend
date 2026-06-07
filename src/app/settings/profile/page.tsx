@@ -7,6 +7,7 @@ import type { UserProfileResponse } from '@signalix/contracts';
 import { useAuthStore } from '../../../store/auth.store';
 import { getMe, resendVerification, uploadAvatar, removeAvatar } from '../../../lib/api-client';
 import { Avatar } from '../../../components/Avatar';
+import { PushSettingsCard } from '../../../components/PushSettingsCard';
 
 const PROVIDER_LABELS: Record<string, string> = {
   local: 'Email & Password',
@@ -96,10 +97,10 @@ export default function ProfilePage() {
 
   if (!hydrated || !session || !profile) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#f2f2f7] dark:bg-[#0c0c12]">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="w-7 h-7 rounded-full border-2 border-[#007aff] dark:border-[#0a84ff] border-t-transparent animate-spin" />
-          <p className="text-[13px] text-[#8e8e93]">Loading…</p>
+          <p className="text-[13px] text-[#8e8e93] dark:text-[#9a9aa3]">Loading…</p>
         </div>
       </div>
     );
@@ -110,10 +111,13 @@ export default function ProfilePage() {
   const showResend = !user.isVerified && providers.includes('local');
 
   return (
-    <div className="min-h-screen bg-[#f2f2f7] dark:bg-[#0c0c12]">
+    // h-full + overflow-y-auto so content scrolls inside the viewport-locked
+    // body (html/body are 100dvh/overflow:hidden in globals.css for the chats
+    // shell). Sticky nav stays pinned relative to this scrolling container.
+    <div className="h-full overflow-y-auto">
 
       {/* Nav bar */}
-      <div className="sticky top-0 z-10 bg-[#f2f2f7]/90 dark:bg-[#0c0c12]/90 backdrop-blur-xl border-b border-black/[0.06] dark:border-white/[0.07]">
+      <div className="sticky top-0 z-10 bg-white/55 dark:bg-white/[0.04] backdrop-blur-2xl border-b border-white/40 dark:border-white/[0.05]">
         <div className="flex items-center px-4 py-3 max-w-lg mx-auto relative">
           <Link
             href="/chats"
@@ -162,21 +166,21 @@ export default function ProfilePage() {
           </button>
 
           {editMenuOpen && (
-            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-48 rounded-2xl bg-white/95 dark:bg-[#1c1c24]/95 backdrop-blur-xl shadow-xl shadow-black/[0.12] border border-black/[0.07] dark:border-white/[0.07] overflow-hidden z-20 py-1">
+            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-48 rounded-2xl bg-white/80 dark:bg-[#1f1f28]/80 backdrop-blur-2xl shadow-glass border border-white/60 dark:border-white/[0.06] overflow-hidden z-20 py-1">
               {user.avatarUrl ? (
                 <>
                   <button
                     type="button"
                     onClick={() => { setEditMenuOpen(false); fileInputRef.current?.click(); }}
-                    className="w-full text-left px-4 py-2.5 text-[14px] text-[#1d1d1f] dark:text-[#f5f5f7] hover:bg-black/[0.04] dark:hover:bg-white/[0.04] active:bg-black/[0.07] transition-colors"
+                    className="w-full text-left px-4 py-2.5 text-[14px] text-[#1d1d1f] dark:text-[#f5f5f7] hover:bg-white/55 dark:hover:bg-white/[0.06] transition-colors"
                   >
                     Change photo
                   </button>
-                  <div className="mx-4 border-t border-black/[0.06] dark:border-white/[0.06]" />
+                  <div className="mx-4 border-t border-white/50 dark:border-white/[0.05]" />
                   <button
                     type="button"
                     onClick={() => { setEditMenuOpen(false); void handleRemoveAvatar(); }}
-                    className="w-full text-left px-4 py-2.5 text-[14px] text-red-500 dark:text-red-400 hover:bg-red-50/80 dark:hover:bg-red-900/20 active:bg-red-100 dark:active:bg-red-900/30 transition-colors"
+                    className="w-full text-left px-4 py-2.5 text-[14px] text-red-500 dark:text-red-400 hover:bg-red-50/70 dark:hover:bg-red-900/15 transition-colors"
                   >
                     Remove
                   </button>
@@ -185,7 +189,7 @@ export default function ProfilePage() {
                 <button
                   type="button"
                   onClick={() => { setEditMenuOpen(false); fileInputRef.current?.click(); }}
-                  className="w-full text-left px-4 py-2.5 text-[14px] text-[#1d1d1f] dark:text-[#f5f5f7] hover:bg-black/[0.04] dark:hover:bg-white/[0.04] active:bg-black/[0.07] transition-colors"
+                  className="w-full text-left px-4 py-2.5 text-[14px] text-[#1d1d1f] dark:text-[#f5f5f7] hover:bg-white/55 dark:hover:bg-white/[0.06] transition-colors"
                 >
                   Add photo
                 </button>
@@ -204,8 +208,12 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* Content */}
-      <div className="max-w-lg mx-auto px-4 pb-10 space-y-6">
+      {/* Content — generous bottom padding so the last option (Sign Out)
+          stays reachable above the iOS home indicator and any browser chrome. */}
+      <div
+        className="max-w-lg mx-auto px-4 space-y-6"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 2.5rem)' }}
+      >
 
         {/* Email verification warning */}
         {showResend && (
@@ -236,7 +244,7 @@ export default function ProfilePage() {
         {/* Account info */}
         <section>
           <SectionLabel>Account</SectionLabel>
-          <div className="rounded-2xl bg-white/90 dark:bg-[#1c1c24]/90 backdrop-blur-sm overflow-hidden divide-y divide-black/[0.04] dark:divide-white/[0.05] shadow-sm dark:shadow-none border border-black/[0.05] dark:border-white/[0.07]">
+          <div className="rounded-3xl bg-white/55 dark:bg-white/[0.04] backdrop-blur-2xl overflow-hidden divide-y divide-white/40 dark:divide-white/[0.05] shadow-glass-sm border border-white/60 dark:border-white/[0.06]">
             <Row label="Email">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="truncate text-[14px] text-[#1d1d1f] dark:text-[#f5f5f7]">{user.email}</span>
@@ -252,10 +260,13 @@ export default function ProfilePage() {
           </div>
         </section>
 
+        {/* Push notifications */}
+        <PushSettingsCard />
+
         {/* Connected providers */}
         <section>
           <SectionLabel>Connected accounts</SectionLabel>
-          <div className="rounded-2xl bg-white/90 dark:bg-[#1c1c24]/90 backdrop-blur-sm overflow-hidden divide-y divide-black/[0.04] dark:divide-white/[0.05] shadow-sm dark:shadow-none border border-black/[0.05] dark:border-white/[0.07]">
+          <div className="rounded-3xl bg-white/55 dark:bg-white/[0.04] backdrop-blur-2xl overflow-hidden divide-y divide-white/40 dark:divide-white/[0.05] shadow-glass-sm border border-white/60 dark:border-white/[0.06]">
             {ALL_PROVIDERS.map((p) => {
               const connected = providers.includes(p);
               return (
@@ -281,7 +292,7 @@ export default function ProfilePage() {
         {/* Logout */}
         <button
           onClick={handleLogout}
-          className="w-full flex items-center justify-center gap-2 rounded-2xl bg-white/90 dark:bg-[#1c1c24]/90 backdrop-blur-sm border border-red-200/60 dark:border-red-800/30 hover:bg-red-50/90 dark:hover:bg-red-900/10 px-4 py-3.5 text-[15px] font-semibold text-red-500 dark:text-red-400 transition-all duration-150 shadow-sm dark:shadow-none"
+          className="w-full flex items-center justify-center gap-2 rounded-full bg-white/55 dark:bg-white/[0.04] backdrop-blur-2xl border border-red-300/50 dark:border-red-500/25 hover:bg-red-50/70 dark:hover:bg-red-500/[0.10] px-4 py-3.5 text-[15px] font-semibold text-red-500 dark:text-red-400 transition-all duration-200 shadow-glass-sm hover:scale-[1.01] active:scale-[0.99]"
         >
           <LogoutIcon />
           Sign Out

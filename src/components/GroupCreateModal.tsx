@@ -71,11 +71,11 @@ export function GroupCreateModal({ currentUserId, onCreated, onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/25 backdrop-blur-md"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20 backdrop-blur-md"
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-sm rounded-3xl bg-white/95 dark:bg-[#1c1c24]/95 backdrop-blur-2xl shadow-2xl border border-black/[0.07] dark:border-white/[0.07] overflow-hidden flex flex-col max-h-[85vh]"
+        className="relative w-full max-w-sm rounded-3xl bg-white/75 dark:bg-[#1f1f28]/75 backdrop-blur-2xl shadow-glass border border-white/60 dark:border-white/[0.06] overflow-hidden flex flex-col max-h-[85vh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -83,7 +83,7 @@ export function GroupCreateModal({ currentUserId, onCreated, onClose }: Props) {
           <p className="text-[17px] font-semibold text-[#1d1d1f] dark:text-[#f5f5f7]">New Group</p>
           <button
             onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center rounded-full bg-[#f2f2f7]/90 dark:bg-[#16161e]/80 text-[#aeaeb2] hover:text-[#6e6e73] dark:hover:text-[#8e8e93] transition-colors"
+            className="w-7 h-7 flex items-center justify-center rounded-full bg-white/55 dark:bg-white/[0.06] text-[#8e8e93] dark:text-[#9a9aa3] hover:text-[#1d1d1f] dark:hover:text-[#f5f5f7] transition-colors"
             aria-label="Close"
           >
             <CloseIcon />
@@ -100,7 +100,7 @@ export function GroupCreateModal({ currentUserId, onCreated, onClose }: Props) {
                 value={query}
                 onChange={handleSearchChange}
                 placeholder="Search people to add…"
-                className="w-full px-3 py-2 rounded-xl bg-[#f2f2f7]/80 dark:bg-[#16161e]/60 border border-black/[0.05] dark:border-white/[0.06] text-[14px] text-[#1d1d1f] dark:text-[#f5f5f7] placeholder-[#aeaeb2] focus:outline-none"
+                className="w-full px-4 py-2 rounded-full bg-white/55 dark:bg-white/[0.06] border border-white/60 dark:border-white/[0.06] text-[14px] text-[#1d1d1f] dark:text-[#f5f5f7] placeholder-[#8e8e93] dark:placeholder-[#9a9aa3] focus:outline-none focus:bg-white/75 dark:focus:bg-white/[0.08] transition-all duration-200"
               />
             </div>
 
@@ -132,12 +132,12 @@ export function GroupCreateModal({ currentUserId, onCreated, onClose }: Props) {
                   <button
                     key={u.id}
                     onClick={() => toggleMember(u)}
-                    className={`w-full flex items-center gap-3 px-2 py-2.5 rounded-xl text-left transition-colors ${isSelected ? 'bg-[#007aff]/[0.07] dark:bg-[#0a84ff]/[0.09]' : 'hover:bg-black/[0.04] dark:hover:bg-white/[0.04]'}`}
+                    className={`w-full flex items-center gap-3 px-2 py-2.5 rounded-2xl text-left transition-all duration-200 hover:scale-[1.005] active:scale-[0.99] ${isSelected ? 'bg-white/60 dark:bg-white/[0.08]' : 'hover:bg-white/45 dark:hover:bg-white/[0.05]'}`}
                   >
                     <Avatar name={u.displayName ?? u.username} seed={u.id} avatarUrl={u.avatarUrl} size="sm" />
                     <div className="min-w-0 flex-1">
                       <p className="text-[14px] font-medium text-[#1d1d1f] dark:text-[#f5f5f7] truncate">{u.displayName ?? u.username}</p>
-                      <p className="text-[12px] text-[#8e8e93] truncate">@{u.username}</p>
+                      <p className="text-[12px] text-[#8e8e93] dark:text-[#9a9aa3] truncate">@{u.username}</p>
                     </div>
                     {isSelected && <span className="text-[#007aff] dark:text-[#0a84ff] flex-shrink-0"><CheckIcon /></span>}
                   </button>
@@ -153,7 +153,7 @@ export function GroupCreateModal({ currentUserId, onCreated, onClose }: Props) {
               <button
                 onClick={() => setStep('name')}
                 disabled={selectedMembers.length < 2}
-                className="w-full py-3 rounded-2xl text-[15px] font-semibold text-white bg-[#007aff] dark:bg-[#0a84ff] disabled:opacity-40 transition-opacity"
+                className="w-full py-3 rounded-full text-[15px] font-semibold text-white bg-[#007aff] dark:bg-[#0a84ff] shadow-glass-sm disabled:opacity-40 transition-all duration-200 hover:scale-[1.01] active:scale-[0.99]"
               >
                 Next
               </button>
@@ -166,14 +166,14 @@ export function GroupCreateModal({ currentUserId, onCreated, onClose }: Props) {
               {/* Selected members preview */}
               <div className="flex flex-wrap gap-1.5 mb-4">
                 {selectedMembers.map((u) => (
-                  <div key={u.id} className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#f2f2f7]/80 dark:bg-[#16161e]/60 text-[12px] text-[#6e6e73] dark:text-[#8e8e93]">
+                  <div key={u.id} className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/55 dark:bg-white/[0.06] text-[12px] text-[#6e6e73] dark:text-[#9a9aa3]">
                     <Avatar name={u.displayName ?? u.username} seed={u.id} avatarUrl={u.avatarUrl} size="xs" />
                     <span>{u.displayName ?? u.username}</span>
                   </div>
                 ))}
               </div>
 
-              <label className="block text-[12px] font-semibold text-[#8e8e93] uppercase tracking-wide mb-1.5">Group Name</label>
+              <label className="block text-[12px] font-semibold text-[#8e8e93] dark:text-[#9a9aa3] uppercase tracking-wide mb-1.5">Group Name</label>
               <input
                 autoFocus
                 type="text"
@@ -182,7 +182,7 @@ export function GroupCreateModal({ currentUserId, onCreated, onClose }: Props) {
                 onKeyDown={(e) => { if (e.key === 'Enter') void handleCreate(); }}
                 placeholder="e.g. Team Alpha"
                 maxLength={100}
-                className="w-full px-3 py-2.5 rounded-xl bg-[#f2f2f7]/80 dark:bg-[#16161e]/60 border border-black/[0.05] dark:border-white/[0.06] text-[15px] text-[#1d1d1f] dark:text-[#f5f5f7] placeholder-[#aeaeb2] focus:outline-none focus:ring-2 focus:ring-[#007aff]/20 dark:focus:ring-[#0a84ff]/15 transition-all"
+                className="w-full px-4 py-2.5 rounded-full bg-white/55 dark:bg-white/[0.06] border border-white/60 dark:border-white/[0.06] text-[15px] text-[#1d1d1f] dark:text-[#f5f5f7] placeholder-[#8e8e93] dark:placeholder-[#9a9aa3] focus:outline-none focus:bg-white/75 dark:focus:bg-white/[0.08] focus:border-white/80 transition-all duration-200"
               />
               {error && <p className="text-[12px] text-red-500 mt-1.5">{error}</p>}
             </div>
@@ -190,14 +190,14 @@ export function GroupCreateModal({ currentUserId, onCreated, onClose }: Props) {
             <div className="flex gap-2 px-4 pb-5 flex-shrink-0">
               <button
                 onClick={() => setStep('members')}
-                className="flex-1 py-3 rounded-2xl text-[15px] font-medium text-[#007aff] dark:text-[#0a84ff] bg-[#007aff]/[0.08] dark:bg-[#0a84ff]/[0.10] transition-opacity"
+                className="flex-1 py-3 rounded-full text-[15px] font-medium text-[#1d1d1f] dark:text-[#f5f5f7] bg-white/55 dark:bg-white/[0.06] hover:bg-white/70 dark:hover:bg-white/[0.08] transition-all duration-200 hover:scale-[1.01] active:scale-[0.99]"
               >
                 Back
               </button>
               <button
                 onClick={() => void handleCreate()}
                 disabled={!groupName.trim() || creating}
-                className="flex-1 py-3 rounded-2xl text-[15px] font-semibold text-white bg-[#007aff] dark:bg-[#0a84ff] disabled:opacity-40 transition-opacity"
+                className="flex-1 py-3 rounded-full text-[15px] font-semibold text-white bg-[#007aff] dark:bg-[#0a84ff] shadow-glass-sm disabled:opacity-40 transition-all duration-200 hover:scale-[1.01] active:scale-[0.99]"
               >
                 {creating ? 'Creating…' : 'Create Group'}
               </button>

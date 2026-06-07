@@ -51,7 +51,7 @@ function OAuthCallbackInner() {
 
   return (
     <div className="min-h-screen flex items-center justify-center">
-      <p className="text-sm text-gray-400">Signing you in…</p>
+      <p className="text-[13px] text-[#8e8e93] dark:text-[#9a9aa3]">Signing you in…</p>
     </div>
   );
 }
@@ -61,7 +61,7 @@ export default function OAuthCallbackPage() {
     <Suspense
       fallback={
         <div className="min-h-screen flex items-center justify-center">
-          <p className="text-sm text-gray-400">Signing you in…</p>
+          <p className="text-[13px] text-[#8e8e93] dark:text-[#9a9aa3]">Signing you in…</p>
         </div>
       }
     >

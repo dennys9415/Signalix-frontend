@@ -26,27 +26,27 @@ export function ContactProfileModal({ userId, displayName, username, avatarUrl, 
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/25 backdrop-blur-md"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20 backdrop-blur-md"
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-[300px] rounded-3xl bg-white/95 dark:bg-[#1c1c24]/95 backdrop-blur-2xl shadow-2xl border border-black/[0.07] dark:border-white/[0.07] overflow-hidden"
+        className="relative w-full max-w-[300px] rounded-3xl bg-white/75 dark:bg-[#1f1f28]/75 backdrop-blur-2xl shadow-glass border border-white/60 dark:border-white/[0.06] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close button */}
         <button
           onClick={onClose}
           aria-label="Close"
-          className="absolute top-3.5 right-3.5 w-7 h-7 flex items-center justify-center rounded-full bg-[#f2f2f7]/90 dark:bg-[#16161e]/80 text-[#aeaeb2] hover:text-[#6e6e73] dark:hover:text-[#8e8e93] transition-colors z-10"
+          className="absolute top-3.5 right-3.5 w-7 h-7 flex items-center justify-center rounded-full bg-white/55 dark:bg-white/[0.06] text-[#8e8e93] dark:text-[#9a9aa3] hover:text-[#1d1d1f] dark:hover:text-[#f5f5f7] transition-colors z-10"
         >
           <CloseIcon />
         </button>
 
         {/* Avatar hero */}
-        <div className="flex flex-col items-center pt-10 pb-5 px-6 bg-gradient-to-b from-[#f2f2f7]/60 dark:from-[#16161e]/40 to-transparent">
+        <div className="flex flex-col items-center pt-10 pb-5 px-6 bg-gradient-to-b from-white/30 dark:from-white/[0.03] to-transparent">
           <div className="relative">
             <Avatar name={displayName} seed={userId} avatarUrl={avatarUrl} size="xl" />
-            <span className="absolute -bottom-0.5 -right-0.5 ring-2 ring-white/80 dark:ring-[#1c1c24]/80">
+            <span className="absolute -bottom-0.5 -right-0.5 ring-2 ring-white/70 dark:ring-[#1f1f28]/70">
               <PresenceIndicator online={isOnline} />
             </span>
           </div>
@@ -55,14 +55,14 @@ export function ContactProfileModal({ userId, displayName, username, avatarUrl, 
         {/* Info */}
         <div className="px-6 pb-8 text-center">
           <p className="text-[18px] font-bold text-[#1d1d1f] dark:text-[#f5f5f7] truncate">{displayName}</p>
-          <p className="text-[13px] text-[#8e8e93] truncate mt-0.5">@{username}</p>
+          <p className="text-[13px] text-[#8e8e93] dark:text-[#9a9aa3] truncate mt-0.5">@{username}</p>
           <div className="flex items-center justify-center gap-1.5 mt-2">
             <PresenceIndicator online={isOnline} size="sm" />
-            <span className={`text-[12px] font-medium ${isOnline ? 'text-emerald-500' : 'text-[#8e8e93]'}`}>
+            <span className={`text-[12px] font-medium ${isOnline ? 'text-emerald-500' : 'text-[#8e8e93] dark:text-[#9a9aa3]'}`}>
               {isOnline ? 'Online' : formatLastSeen(lastSeenAt)}
             </span>
           </div>
-          <p className="text-[10px] text-[#c7c7cc] dark:text-[#3c3c44] mt-3 font-mono select-all leading-relaxed break-all">{userId}</p>
+          <p className="text-[10px] text-[#aeaeb2] dark:text-[#5a5a65] mt-3 font-mono select-all leading-relaxed break-all">{userId}</p>
         </div>
       </div>
     </div>

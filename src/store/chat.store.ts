@@ -207,6 +207,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
           let preview: string;
           if (p.messageType === MessageType.IMAGE) {
             preview = '📷 Photo';
+          } else if (p.messageType === MessageType.AUDIO) {
+            preview = '🎙️ Voice message';
           } else if (p.messageType === MessageType.FILE) {
             try {
               const f = JSON.parse(p.ciphertext) as { name?: string };
@@ -390,7 +392,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
     }
 
-    const resolvedType = (messageType ?? MessageType.TEXT) as MessageType.TEXT | MessageType.IMAGE | MessageType.FILE;
+    // Widened to SendableMessageType so voice notes (MessageType.AUDIO)
+    // pass through unchanged instead of being silently coerced to TEXT.
+    const resolvedType = (messageType ?? MessageType.TEXT) as import('@signalix/contracts').SendableMessageType;
 
     const tempMsg: TempMessage = {
       tempId,

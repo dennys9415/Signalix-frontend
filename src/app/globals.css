@@ -7,8 +7,8 @@
      OS-level dialog can cause the page to reflow. Only the message-list
      element scrolls; body/html never do. */
   html {
-    height: 100vh;          /* fallback for browsers without dvh */
-    height: 100dvh;         /* adapts to dynamic viewport (mobile browser chrome) */
+    height: 100vh;
+    height: 100dvh;
     overflow: hidden;
   }
 
@@ -21,19 +21,44 @@
     color-scheme: light dark;
     --accent: #007aff;
     --accent-dark: #0a84ff;
-    --surface: rgba(255, 255, 255, 0.82);
-    --surface-dark: rgba(24, 24, 32, 0.88);
-    --bg: #f2f2f7;
-    --bg-dark: #0c0c12;
+
+    /* Liquid glass surfaces */
+    --glass: rgba(255, 255, 255, 0.55);
+    --glass-strong: rgba(255, 255, 255, 0.72);
+    --glass-edge: rgba(255, 255, 255, 0.7);
+
+    /* Layered light background — warm white with subtle cool wash */
+    --bg-base: #f4f4f8;
+    --bg-tint-a: rgba(0, 122, 255, 0.06);
+    --bg-tint-b: rgba(255, 255, 255, 0.75);
+  }
+
+  .dark {
+    --glass: rgba(255, 255, 255, 0.06);
+    --glass-strong: rgba(255, 255, 255, 0.08);
+    --glass-edge: rgba(255, 255, 255, 0.08);
+
+    /* Layered dark background — deep graphite, never pure black, faint blue tint */
+    --bg-base: #14151c;
+    --bg-tint-a: rgba(10, 132, 255, 0.10);
+    --bg-tint-b: rgba(255, 255, 255, 0.02);
+  }
+
+  body {
+    background-color: var(--bg-base);
+    background-image:
+      radial-gradient(ellipse 80% 60% at 0% 0%, var(--bg-tint-a), transparent 60%),
+      radial-gradient(ellipse 70% 50% at 100% 100%, var(--bg-tint-b), transparent 60%);
+    background-attachment: fixed;
   }
 
   * {
     scrollbar-width: thin;
-    scrollbar-color: rgba(0, 0, 0, 0.14) transparent;
+    scrollbar-color: rgba(0, 0, 0, 0.10) transparent;
   }
 
   .dark * {
-    scrollbar-color: rgba(255, 255, 255, 0.09) transparent;
+    scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
   }
 
   *::-webkit-scrollbar {
@@ -46,19 +71,57 @@
   }
 
   *::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.14);
+    background: rgba(0, 0, 0, 0.10);
     border-radius: 9999px;
   }
 
   .dark *::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.09);
+    background: rgba(255, 255, 255, 0.08);
   }
 
   ::selection {
-    background: rgba(0, 122, 255, 0.18);
+    background: rgba(0, 122, 255, 0.16);
   }
 
   .dark ::selection {
-    background: rgba(10, 132, 255, 0.25);
+    background: rgba(10, 132, 255, 0.22);
+  }
+}
+
+@layer utilities {
+  /* Soft ambient shadow — used by floating glass surfaces. */
+  .shadow-glass {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+  }
+  .dark .shadow-glass {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  }
+
+  .shadow-glass-sm {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  }
+  .dark .shadow-glass-sm {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+  }
+
+  /* Generic glass surface — translucent + backdrop blur + hairline edge. */
+  .surface-glass {
+    background-color: var(--glass);
+    backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    border: 1px solid var(--glass-edge);
+  }
+  .dark .surface-glass {
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+
+  .surface-glass-strong {
+    background-color: var(--glass-strong);
+    backdrop-filter: blur(32px) saturate(190%);
+    -webkit-backdrop-filter: blur(32px) saturate(190%);
+    border: 1px solid var(--glass-edge);
+  }
+  .dark .surface-glass-strong {
+    border-color: rgba(255, 255, 255, 0.07);
   }
 }

@@ -40,9 +40,11 @@ export function ChatItem({ chat, currentUserId, presence, active, lastMessage, u
           ? '🚫 Message deleted'
           : ('messageType' in lastMessage && lastMessage.messageType === MessageType.IMAGE)
             ? '📷 Image'
-            : ('messageType' in lastMessage && lastMessage.messageType === MessageType.FILE)
-              ? (() => { try { const p = JSON.parse(lastMessage.ciphertext) as { name?: string }; return `📎 ${p.name ?? 'File'}`; } catch { return '📎 File'; } })()
-              : lastMessage.ciphertext)
+            : ('messageType' in lastMessage && lastMessage.messageType === MessageType.AUDIO)
+              ? '🎙️ Voice message'
+              : ('messageType' in lastMessage && lastMessage.messageType === MessageType.FILE)
+                ? (() => { try { const p = JSON.parse(lastMessage.ciphertext) as { name?: string }; return `📎 ${p.name ?? 'File'}`; } catch { return '📎 File'; } })()
+                : lastMessage.ciphertext)
       : '…'
     : null;
 
@@ -50,12 +52,12 @@ export function ChatItem({ chat, currentUserId, presence, active, lastMessage, u
     ? 'createdAt' in lastMessage ? formatChatTime(lastMessage.createdAt) : null
     : formatChatTime(chat.createdAt);
 
-  const rowClassName = `flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-150 w-full text-left ${
+  const rowClassName = `flex items-center gap-3 px-3 py-2.5 rounded-2xl transition-all duration-200 w-full text-left hover:scale-[1.005] active:scale-[0.99] ${
     active
-      ? 'bg-[#007aff]/[0.08] dark:bg-[#007aff]/[0.10]'
+      ? 'bg-white/60 dark:bg-white/[0.08] backdrop-blur-xl shadow-glass-sm'
       : hasUnread
-      ? 'bg-[#007aff]/[0.04] dark:bg-[#007aff]/[0.06] hover:bg-[#007aff]/[0.07] dark:hover:bg-[#007aff]/[0.09]'
-      : 'hover:bg-black/[0.04] dark:hover:bg-white/[0.04]'
+      ? 'bg-white/35 dark:bg-white/[0.04] hover:bg-white/55 dark:hover:bg-white/[0.06]'
+      : 'hover:bg-white/40 dark:hover:bg-white/[0.04]'
   }`;
 
   const rowContent = (
@@ -66,7 +68,7 @@ export function ChatItem({ chat, currentUserId, presence, active, lastMessage, u
         {isOnline && (
           <PresenceIndicator
             online
-            className="absolute -bottom-0.5 -right-0.5 ring-2 ring-white dark:ring-[#1c1c24]"
+            className="absolute -bottom-0.5 -right-0.5 ring-2 ring-white/80 dark:ring-[#1c1c24]/80"
           />
         )}
       </div>
@@ -76,9 +78,7 @@ export function ChatItem({ chat, currentUserId, presence, active, lastMessage, u
         {/* Name + timestamp */}
         <div className="flex items-baseline justify-between gap-1">
           <p className={`truncate text-[14px] leading-snug ${
-            active
-              ? 'font-semibold text-[#007aff] dark:text-[#0a84ff]'
-              : hasUnread
+            active || hasUnread
               ? 'font-semibold text-[#1d1d1f] dark:text-[#f5f5f7]'
               : 'font-medium text-[#1d1d1f] dark:text-[#f5f5f7]'
           }`}>
@@ -87,8 +87,8 @@ export function ChatItem({ chat, currentUserId, presence, active, lastMessage, u
           {timestamp && (
             <span className={`text-[11px] flex-shrink-0 tabular-nums ${
               hasUnread
-                ? 'text-[#007aff] dark:text-[#0a84ff] font-medium'
-                : 'text-[#aeaeb2] dark:text-[#636375]'
+                ? 'text-[#1d1d1f] dark:text-[#d1d1d6] font-medium'
+                : 'text-[#8e8e93] dark:text-[#9a9aa3]'
             }`}>
               {timestamp}
             </span>
@@ -100,12 +100,12 @@ export function ChatItem({ chat, currentUserId, presence, active, lastMessage, u
           <p className={`truncate text-[13px] leading-snug ${
             hasUnread
               ? 'text-[#1d1d1f] dark:text-[#d1d1d6] font-medium'
-              : 'text-[#aeaeb2] dark:text-[#636375]'
+              : 'text-[#8e8e93] dark:text-[#9a9aa3]'
           }`}>
             {preview ?? (isGroup ? `${chat.participants.length} members` : `@${username}`)}
           </p>
           {hasUnread && (
-            <span className="flex-shrink-0 min-w-[20px] h-5 flex items-center justify-center rounded-full bg-[#007aff] text-[11px] font-semibold text-white px-1.5 leading-none">
+            <span className="flex-shrink-0 min-w-[20px] h-5 flex items-center justify-center rounded-full bg-[#007aff] text-[11px] font-semibold text-white px-1.5 leading-none shadow-glass-sm">
               {unreadCount > 99 ? '99+' : unreadCount}
             </span>
           )}

@@ -1,17 +1,38 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import { ServiceWorkerRegistration } from '../components/ServiceWorkerRegistration';
+import { InstallPrompt } from '../components/InstallPrompt';
 
 export const metadata: Metadata = {
   title: 'Signalix',
-  description: 'Secure messaging',
+  description: 'Secure real-time messaging — direct and group chats with reactions, replies, files, and presence.',
+  applicationName: 'Signalix',
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    title: 'Signalix',
+    statusBarStyle: 'black-translucent',
+  },
+  icons: {
+    icon: [{ url: '/icon.svg', type: 'image/svg+xml' }],
+    apple: [{ url: '/apple-touch-icon.svg' }],
+  },
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
+    { media: '(prefers-color-scheme: dark)', color: '#0c0c12' },
+  ],
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="dark">
       <head>
-        {/* viewport-fit=cover lets env(safe-area-inset-*) work on iOS notch/home-bar */}
-        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         {/* Apply stored theme before first paint to prevent flash */}
         <script
           dangerouslySetInnerHTML={{
@@ -19,8 +40,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
       </head>
-      <body className="bg-[#f2f2f7] dark:bg-[#0c0c12] text-[#1d1d1f] dark:text-[#f5f5f7] antialiased">
+      <body className="text-[#1d1d1f] dark:text-[#f5f5f7] antialiased">
         {children}
+        <ServiceWorkerRegistration />
+        <InstallPrompt />
       </body>
     </html>
   );

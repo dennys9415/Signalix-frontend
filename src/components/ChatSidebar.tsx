@@ -97,17 +97,17 @@ export function ChatSidebar() {
       {currentUser && (
         <Link
           href="/settings/profile"
-          className="flex md:hidden items-center gap-3 px-4 pt-4 pb-3 flex-shrink-0 hover:bg-black/[0.03] dark:hover:bg-white/[0.03] transition-colors"
+          className="flex md:hidden items-center gap-3 px-4 pt-4 pb-3 flex-shrink-0 hover:bg-white/40 dark:hover:bg-white/[0.04] transition-colors"
         >
           <div className="relative">
             <Avatar name={currentUser.displayName ?? currentUser.username} seed={currentUser.id} avatarUrl={currentUser.avatarUrl} size="md" />
-            <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-white dark:ring-[#1c1c24]" />
+            <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-white/80 dark:ring-[#1c1c24]/80" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[14px] font-semibold truncate text-[#1d1d1f] dark:text-[#f5f5f7]">
               {currentUser.displayName ?? currentUser.username}
             </p>
-            <p className="text-[12px] text-[#8e8e93] truncate">@{currentUser.username}</p>
+            <p className="text-[12px] text-[#8e8e93] dark:text-[#9a9aa3] truncate">@{currentUser.username}</p>
           </div>
           <ChevronRightIcon />
         </Link>
@@ -117,27 +117,31 @@ export function ChatSidebar() {
       <div className="flex items-center justify-between px-4 pt-4 pb-2 flex-shrink-0">
         <h2 className="text-[17px] font-bold text-[#1d1d1f] dark:text-[#f5f5f7] tracking-tight">Messages</h2>
         <div className="flex items-center gap-0.5">
+          {/* Match IconRail spec exactly: 40×40 hit area, rounded-2xl, neutral
+              gray glyph, hover gives glass background + full-contrast color. */}
           <button
             onClick={() => setGroupModalOpen(true)}
             title="New group"
-            className="w-8 h-8 flex items-center justify-center rounded-xl text-[#007aff] dark:text-[#0a84ff] hover:bg-[#007aff]/[0.08] dark:hover:bg-[#0a84ff]/[0.10] transition-all duration-150"
+            aria-label="New group"
+            className="w-10 h-10 flex items-center justify-center rounded-2xl text-[#8e8e93] dark:text-[#9a9aa3] hover:bg-white/40 dark:hover:bg-white/[0.06] hover:text-[#1d1d1f] dark:hover:text-[#f5f5f7] transition-all duration-200 hover:scale-[1.04] active:scale-[0.98]"
           >
             <GroupIcon />
           </button>
           <button
             onClick={() => { setQuery(''); searchRef.current?.focus(); }}
             title="New conversation"
-            className="w-8 h-8 flex items-center justify-center rounded-xl text-[#007aff] dark:text-[#0a84ff] hover:bg-[#007aff]/[0.08] dark:hover:bg-[#0a84ff]/[0.10] transition-all duration-150"
+            aria-label="New conversation"
+            className="w-10 h-10 flex items-center justify-center rounded-2xl text-[#8e8e93] dark:text-[#9a9aa3] hover:bg-white/40 dark:hover:bg-white/[0.06] hover:text-[#1d1d1f] dark:hover:text-[#f5f5f7] transition-all duration-200 hover:scale-[1.04] active:scale-[0.98]"
           >
             <ComposeIcon />
           </button>
         </div>
       </div>
 
-      {/* ── Search ── */}
+      {/* ── Search — Apple-style pill ── */}
       <div className="px-3 mb-2 flex-shrink-0">
         <div className="relative">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#aeaeb2] dark:text-[#636375] pointer-events-none">
+          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#8e8e93] dark:text-[#9a9aa3] pointer-events-none">
             <SearchIcon />
           </span>
           <input
@@ -146,13 +150,13 @@ export function ChatSidebar() {
             value={query}
             onChange={handleSearchChange}
             placeholder="Search"
-            className="w-full rounded-xl bg-[#f2f2f7]/80 dark:bg-[#16161e]/60 border border-black/[0.06] dark:border-white/[0.07] pl-9 pr-9 py-2 text-[14px] text-[#1d1d1f] dark:text-[#f5f5f7] placeholder-[#aeaeb2] dark:placeholder-[#636375] focus:outline-none focus:ring-2 focus:ring-[#007aff]/20 dark:focus:ring-[#0a84ff]/15 transition-all"
+            className="w-full rounded-full bg-white/45 dark:bg-white/[0.06] backdrop-blur-xl border border-white/60 dark:border-white/[0.06] pl-9 pr-9 py-2 text-[14px] text-[#1d1d1f] dark:text-[#f5f5f7] placeholder-[#8e8e93] dark:placeholder-[#9a9aa3] focus:outline-none focus:bg-white/70 dark:focus:bg-white/[0.08] focus:border-white/80 dark:focus:border-white/[0.10] transition-all duration-200"
           />
           {query && (
             <button
               type="button"
               onClick={clearSearch}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#aeaeb2] hover:text-[#6e6e73] dark:hover:text-[#8e8e93] transition-colors"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8e8e93] hover:text-[#1d1d1f] dark:hover:text-[#f5f5f7] transition-colors"
             >
               <XSmallIcon />
             </button>
@@ -181,20 +185,20 @@ export function ChatSidebar() {
                 key={user.id}
                 type="button"
                 onClick={() => startNewChat(user)}
-                className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors text-left"
+                className="w-full flex items-center gap-3 rounded-2xl px-3 py-2.5 hover:bg-white/50 dark:hover:bg-white/[0.05] transition-all duration-200 hover:scale-[1.005] active:scale-[0.99] text-left"
               >
                 <div className="relative flex-shrink-0">
                   <Avatar name={name} seed={user.id} avatarUrl={user.avatarUrl} size="md" />
                   {isOnline && (
                     <PresenceIndicator
                       online
-                      className="absolute -bottom-0.5 -right-0.5 ring-2 ring-white dark:ring-[#1c1c24]"
+                      className="absolute -bottom-0.5 -right-0.5 ring-2 ring-white/80 dark:ring-[#1c1c24]/80"
                     />
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-[14px] font-medium truncate text-[#1d1d1f] dark:text-[#f5f5f7]">{name}</p>
-                  <p className="text-[12px] text-[#8e8e93] truncate">@{user.username}</p>
+                  <p className="text-[12px] text-[#8e8e93] dark:text-[#9a9aa3] truncate">@{user.username}</p>
                 </div>
                 {isOnline && (
                   <span className="text-[11px] font-medium text-emerald-500 flex-shrink-0">Online</span>
@@ -285,7 +289,7 @@ function ChevronRightIcon() {
 
 function GroupIcon() {
   return (
-    <svg viewBox="0 0 20 20" className="w-4.5 h-4.5 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 20 20" className="w-5 h-5 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="7" cy="7" r="3" />
       <path d="M1 17a6 6 0 0 1 12 0" />
       <circle cx="15" cy="7" r="2.5" />
@@ -296,7 +300,7 @@ function GroupIcon() {
 
 function ComposeIcon() {
   return (
-    <svg viewBox="0 0 20 20" className="w-4.5 h-4.5 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 20 20" className="w-5 h-5 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       {/* Speech bubble (Lucide MessageSquarePlus path scaled 24→20) */}
       <path d="M17.5 12.5a1.5 1.5 0 0 1-1.5 1.5H6l-3 3V4a1.5 1.5 0 0 1 1.5-1.5h12a1.5 1.5 0 0 1 1.5 1.5z" />
       {/* Plus sign */}

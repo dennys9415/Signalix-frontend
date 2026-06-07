@@ -26,11 +26,13 @@ export default function ChatsIndexPage() {
   }
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-8 select-none">
-      <EmptyStateIcon />
+    <div className="flex-1 flex flex-col items-center justify-center gap-5 text-center px-8 select-none">
+      <div className="w-20 h-20 rounded-3xl bg-white/55 dark:bg-white/[0.06] backdrop-blur-xl border border-white/60 dark:border-white/[0.06] flex items-center justify-center shadow-glass-sm">
+        <EmptyStateIcon />
+      </div>
       <div>
         <p className="text-[17px] font-semibold text-[#1d1d1f] dark:text-[#f5f5f7]">Messages</p>
-        <p className="text-[13px] text-[#8e8e93] dark:text-[#636375] mt-1">
+        <p className="text-[13px] text-[#8e8e93] dark:text-[#9a9aa3] mt-1">
           Select a conversation or search for someone to get started.
         </p>
       </div>
@@ -40,7 +42,7 @@ export default function ChatsIndexPage() {
 
 function EmptyStateIcon() {
   return (
-    <svg viewBox="0 0 64 64" className="w-16 h-16 text-[#c7c7cc] dark:text-[#3c3c44] fill-none stroke-current stroke-[1.5]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 64 64" className="w-10 h-10 text-[#8e8e93] dark:text-[#9a9aa3] fill-none stroke-current stroke-[1.5]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M10 16a6 6 0 0 1 6-6h32a6 6 0 0 1 6 6v26a6 6 0 0 1-6 6H20l-10 8V16z" />
       <line x1="22" y1="27" x2="42" y2="27" />
       <line x1="22" y1="35" x2="34" y2="35" />

@@ -15,6 +15,7 @@ import { StatusIcon } from './StatusIcon';
 import { MessageInput } from './MessageInput';
 import { ContactProfileModal } from './ContactProfileModal';
 import { GroupInfoModal } from './GroupInfoModal';
+import { VoiceBubble } from './VoiceBubble';
 
 const EMPTY_MESSAGES: StoredMessage[] = [];
 const EMPTY_TYPING: string[] = [];
@@ -31,6 +32,18 @@ function parseFileInfo(ciphertext: string): FileInfo | null {
   return null;
 }
 
+interface VoiceInfo { url: string; duration: number }
+
+function parseVoiceInfo(ciphertext: string): VoiceInfo | null {
+  try {
+    const p = JSON.parse(ciphertext) as { url?: unknown; duration?: unknown };
+    if (typeof p.url === 'string' && typeof p.duration === 'number') {
+      return { url: p.url, duration: p.duration };
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -38,6 +51,7 @@ function formatBytes(bytes: number): string {
 }
 
 function getReplyPreviewText(ciphertext: string, messageType?: MessageType): string {
+  if (messageType === MessageType.AUDIO) return '🎙️ Voice message';
   if (messageType === MessageType.IMAGE || ciphertext.startsWith('http')) return '📷 Image';
   if (messageType === MessageType.FILE) {
     const f = parseFileInfo(ciphertext);
@@ -177,6 +191,7 @@ function MessageBubble({ m, currentUserId, chatId, isGroup, getSenderName, onRep
   const messageType = ('messageType' in m ? m.messageType : MessageType.TEXT) as MessageType;
   const isImage = messageType === MessageType.IMAGE && !isDeletedForEveryone;
   const isFile = messageType === MessageType.FILE && !isDeletedForEveryone;
+  const isAudio = messageType === MessageType.AUDIO && !isDeletedForEveryone;
 
   useEffect(() => {
     if (!menuOpen && !reactOpen) return;
@@ -288,7 +303,7 @@ function MessageBubble({ m, currentUserId, chatId, isGroup, getSenderName, onRep
         </button>
 
         {menuOpen && (
-          <div className={`absolute z-30 bottom-full mb-1 w-44 rounded-2xl shadow-xl bg-white/95 dark:bg-[#1c1c24]/95 backdrop-blur-xl border border-black/[0.07] dark:border-white/[0.07] overflow-hidden py-1 ${isMine ? 'right-0' : 'left-0'}`}>
+          <div className={`absolute z-30 bottom-full mb-1 w-44 rounded-2xl shadow-glass bg-white/80 dark:bg-[#1f1f28]/80 backdrop-blur-2xl border border-white/60 dark:border-white/[0.06] overflow-hidden py-1 ${isMine ? 'right-0' : 'left-0'}`}>
             {menuMode === 'main' ? (
               <>
                 <MenuItem icon={<EmojiSmileMenuIcon />} label="React" onClick={() => { closeMenu(); setReactOpen(true); }} />
@@ -314,7 +329,7 @@ function MessageBubble({ m, currentUserId, chatId, isGroup, getSenderName, onRep
   ) : null;
 
   const reactPopover = reactOpen && (
-    <div className={`absolute bottom-full mb-1.5 z-20 flex items-center gap-1 px-2 py-1.5 rounded-full bg-white/95 dark:bg-[#1c1c24]/95 backdrop-blur-xl shadow-xl border border-black/[0.07] dark:border-white/[0.07] ${isMine ? 'right-0' : 'left-0'}`}>
+    <div className={`absolute bottom-full mb-1.5 z-20 flex items-center gap-1 px-2 py-1.5 rounded-full bg-white/80 dark:bg-[#1f1f28]/80 backdrop-blur-2xl shadow-glass border border-white/60 dark:border-white/[0.06] ${isMine ? 'right-0' : 'left-0'}`}>
       {QUICK_EMOJIS.map((e) => (
         <button
           key={e}
@@ -328,17 +343,16 @@ function MessageBubble({ m, currentUserId, chatId, isGroup, getSenderName, onRep
     </div>
   );
 
-  /* Bubble style: outgoing = soft gray, incoming = white with subtle border */
+  /* Bubble style — liquid glass surfaces. Outgoing is darker graphite glass,
+     incoming is lighter glass. No purple tint. Asymmetric tail corners. */
   const bubbleClass = isDeletedForEveryone
-    ? 'bg-[#f2f2f7]/80 dark:bg-[#1e1e2a]/60 border border-black/[0.06] dark:border-white/[0.06]'
+    ? 'bg-white/40 dark:bg-white/[0.04] backdrop-blur-xl border border-white/50 dark:border-white/[0.06]'
     : isMine
-    ? 'bg-[#dde1e8] dark:bg-[#2c2c3a] rounded-br-[5px]'
-    : 'bg-white dark:bg-[#1e1e2a] border border-black/[0.05] dark:border-white/[0.06] shadow-sm rounded-bl-[5px]';
+    ? 'bg-[#1d1d1f]/[0.85] dark:bg-white/[0.10] backdrop-blur-xl text-white dark:text-[#f5f5f7] rounded-br-[8px] shadow-glass-sm'
+    : 'bg-white/65 dark:bg-white/[0.06] backdrop-blur-xl border border-white/55 dark:border-white/[0.05] rounded-bl-[8px]';
 
-  const textClass = isDeletedForEveryone
+  const textClass = isDeletedForEveryone || isMine
     ? ''
-    : isMine
-    ? 'text-[#1d1d1f] dark:text-[#f5f5f7]'
     : 'text-[#1d1d1f] dark:text-[#f5f5f7]';
 
   return (
@@ -358,7 +372,7 @@ function MessageBubble({ m, currentUserId, chatId, isGroup, getSenderName, onRep
           {reactPopover}
 
           <div
-            className={`rounded-2xl ${(isImage || isFile) ? 'overflow-hidden' : 'px-3.5 py-2.5'} ${bubbleClass} ${textClass} ${(isPending || deleting || deletingForEveryone) && !isDeletedForEveryone ? 'opacity-55' : ''}`}
+            className={`rounded-[24px] ${(isImage || isFile || isAudio) ? 'overflow-hidden' : 'px-4 py-2.5'} ${bubbleClass} ${textClass} ${(isPending || deleting || deletingForEveryone) && !isDeletedForEveryone ? 'opacity-55' : ''}`}
           >
             {isDeletedForEveryone ? (
               <div>
@@ -412,12 +426,14 @@ function MessageBubble({ m, currentUserId, chatId, isGroup, getSenderName, onRep
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={text} alt="" className="block w-full max-h-[300px] object-cover" draggable={false} />
                     <div className={`flex items-center gap-1 px-3 py-1.5 ${isMine ? 'justify-end' : 'justify-start'}`}>
-                      <span className="text-[11px] text-[#8e8e93] dark:text-[#636375]">{time}</span>
+                      <span className={`text-[11px] ${isMine ? 'text-white/60 dark:text-white/50' : 'text-[#8e8e93] dark:text-[#9a9aa3]'}`}>{time}</span>
                       {isMine && <StatusIcon state={state} />}
                     </div>
                   </>
                 ) : isFile ? (
                   <FileCard fileInfo={parseFileInfo(text)} time={time} isMine={isMine} state={state} messageId={messageId} />
+                ) : isAudio ? (
+                  <VoiceBubbleSection text={text} time={time} isMine={isMine} state={state} />
                 ) : (
                   <>
                     <p className="text-[15px] leading-relaxed break-words whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</p>
@@ -425,8 +441,8 @@ function MessageBubble({ m, currentUserId, chatId, isGroup, getSenderName, onRep
                       <LinkPreviewCard preview={m.linkPreview as LinkPreviewDTO} />
                     )}
                     <div className={`flex items-center gap-1 mt-0.5 ${isMine ? 'justify-end' : 'justify-start'}`}>
-                      {isEdited && <span className="text-[11px] text-[#8e8e93] dark:text-[#636375]">Edited ·</span>}
-                      <span className="text-[11px] text-[#8e8e93] dark:text-[#636375]">{time}</span>
+                      {isEdited && <span className={`text-[11px] ${isMine ? 'text-white/55 dark:text-white/45' : 'text-[#8e8e93] dark:text-[#9a9aa3]'}`}>Edited ·</span>}
+                      <span className={`text-[11px] ${isMine ? 'text-white/60 dark:text-white/50' : 'text-[#8e8e93] dark:text-[#9a9aa3]'}`}>{time}</span>
                       {isMine && <StatusIcon state={state} />}
                     </div>
                   </>
@@ -477,8 +493,8 @@ function MenuItem({ icon, label, onClick, danger }: { icon: React.ReactNode; lab
       onClick={onClick}
       className={`w-full flex items-center gap-2.5 px-3.5 py-2 text-[13px] transition-colors text-left ${
         danger
-          ? 'text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20'
-          : 'text-[#1d1d1f] dark:text-[#f5f5f7] hover:bg-black/[0.04] dark:hover:bg-white/[0.04]'
+          ? 'text-red-500 dark:text-red-400 hover:bg-red-50/70 dark:hover:bg-red-900/15'
+          : 'text-[#1d1d1f] dark:text-[#f5f5f7] hover:bg-white/55 dark:hover:bg-white/[0.06]'
       }`}
     >
       <span className="flex-shrink-0 w-4 h-4 flex items-center justify-center">{icon}</span>
@@ -620,7 +636,7 @@ export function MessageView({ chat }: Props) {
     <div className="flex flex-col h-full min-h-0">
 
       {/* ── Header ── */}
-      <div className="relative z-20 flex items-center gap-3 px-4 py-3 border-b border-black/[0.06] dark:border-white/[0.07] bg-white/90 dark:bg-[#1c1c24]/90 backdrop-blur-xl flex-shrink-0">
+      <div className="relative z-20 flex items-center gap-3 px-4 py-3 border-b border-white/40 dark:border-white/[0.05] bg-white/55 dark:bg-white/[0.04] backdrop-blur-2xl flex-shrink-0">
         {/* Mobile back */}
         <button
           onClick={() => {
@@ -630,7 +646,7 @@ export function MessageView({ chat }: Props) {
             setOpen(true);
             router.replace('/chats');
           }}
-          className="md:hidden flex items-center justify-center w-8 h-8 -ml-1 rounded-xl text-[#007aff] dark:text-[#0a84ff] hover:bg-[#007aff]/[0.08] transition-colors"
+          className="md:hidden flex items-center justify-center w-9 h-9 -ml-1 rounded-2xl text-[#007aff] dark:text-[#0a84ff] hover:bg-white/50 dark:hover:bg-white/[0.06] transition-all duration-200 hover:scale-[1.04] active:scale-[0.97]"
           aria-label="Back"
         >
           <BackArrowIcon />
@@ -641,11 +657,11 @@ export function MessageView({ chat }: Props) {
         <div className="flex-1 min-w-0">
           <p className="text-[15px] font-semibold text-[#1d1d1f] dark:text-[#f5f5f7] truncate">{otherName}</p>
           {isGroup ? (
-            <p className="text-[12px] text-[#8e8e93] dark:text-[#636375]">{chat.participants.length} members</p>
+            <p className="text-[12px] text-[#8e8e93] dark:text-[#9a9aa3]">{chat.participants.length} members</p>
           ) : (
             <div className="flex items-center gap-1.5">
               <PresenceIndicator online={isOnline} size="sm" />
-              <p className={`text-[12px] font-medium ${isOnline ? 'text-emerald-500' : 'text-[#8e8e93] dark:text-[#636375]'}`}>
+              <p className={`text-[12px] font-medium ${isOnline ? 'text-emerald-500' : 'text-[#8e8e93] dark:text-[#9a9aa3]'}`}>
                 {isOnline ? 'Online' : formatLastSeen(otherLastSeen)}
               </p>
             </div>
@@ -657,14 +673,14 @@ export function MessageView({ chat }: Props) {
           <button
             onClick={() => setProfileOpen(true)}
             title={isGroup ? 'Group info' : 'View profile'}
-            className="w-8 h-8 flex items-center justify-center rounded-xl text-[#8e8e93] dark:text-[#636375] hover:bg-black/[0.05] dark:hover:bg-white/[0.05] hover:text-[#007aff] dark:hover:text-[#0a84ff] transition-all duration-150"
+            className="w-9 h-9 flex items-center justify-center rounded-2xl text-[#8e8e93] dark:text-[#9a9aa3] hover:bg-white/50 dark:hover:bg-white/[0.06] hover:text-[#1d1d1f] dark:hover:text-[#f5f5f7] transition-all duration-200 hover:scale-[1.04] active:scale-[0.97]"
           >
             <UserCircleIcon />
           </button>
           <button
             disabled
             title="Search (coming soon)"
-            className="w-8 h-8 flex items-center justify-center rounded-xl text-[#c7c7cc] dark:text-[#3c3c44] cursor-not-allowed"
+            className="w-9 h-9 flex items-center justify-center rounded-2xl text-[#c7c7cc] dark:text-[#4a4a55] cursor-not-allowed"
           >
             <SearchIcon />
           </button>
@@ -673,27 +689,27 @@ export function MessageView({ chat }: Props) {
           <div className="relative" ref={menuRef}>
             <button
               onClick={() => setMenuOpen((v) => !v)}
-              className={`w-8 h-8 flex items-center justify-center rounded-xl transition-all duration-150 ${menuOpen ? 'text-[#007aff] dark:text-[#0a84ff] bg-[#007aff]/[0.08]' : 'text-[#8e8e93] dark:text-[#636375] hover:bg-black/[0.05] dark:hover:bg-white/[0.05]'}`}
+              className={`w-9 h-9 flex items-center justify-center rounded-2xl transition-all duration-200 hover:scale-[1.04] active:scale-[0.97] ${menuOpen ? 'text-[#1d1d1f] dark:text-[#f5f5f7] bg-white/55 dark:bg-white/[0.08]' : 'text-[#8e8e93] dark:text-[#9a9aa3] hover:bg-white/50 dark:hover:bg-white/[0.06]'}`}
               aria-label="Chat options"
             >
               <DotsVerticalIcon />
             </button>
 
             {menuOpen && (
-              <div className="absolute right-0 top-full mt-1.5 w-52 rounded-2xl shadow-xl bg-white/95 dark:bg-[#1c1c24]/95 backdrop-blur-xl border border-black/[0.07] dark:border-white/[0.07] z-[200] overflow-hidden py-1">
+              <div className="absolute right-0 top-full mt-1.5 w-52 rounded-2xl shadow-glass bg-white/80 dark:bg-[#1f1f28]/80 backdrop-blur-2xl border border-white/60 dark:border-white/[0.06] z-[200] overflow-hidden py-1">
                 <button
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-[14px] text-[#1d1d1f] dark:text-[#f5f5f7] hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors text-left"
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-[14px] text-[#1d1d1f] dark:text-[#f5f5f7] hover:bg-white/55 dark:hover:bg-white/[0.06] transition-colors text-left"
                   onClick={() => { setMenuOpen(false); setProfileOpen(true); }}
                 >
                   <UserCircleIcon />
                   <span>{isGroup ? 'Group Info' : 'View Profile'}</span>
                 </button>
-                <div className="my-1 border-t border-black/[0.06] dark:border-white/[0.06]" />
+                <div className="my-1 border-t border-white/50 dark:border-white/[0.05]" />
                 {!isGroup && (
                   <button
                     onClick={() => void handleDeleteChat()}
                     disabled={deletingChat}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-[14px] text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40 transition-colors text-left"
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-[14px] text-red-500 dark:text-red-400 hover:bg-red-50/70 dark:hover:bg-red-900/15 disabled:opacity-40 transition-colors text-left"
                   >
                     <TrashOutlineIcon />
                     <span>{deletingChat ? 'Deleting…' : 'Delete Chat'}</span>
@@ -702,11 +718,11 @@ export function MessageView({ chat }: Props) {
                 {!isGroup && (
                   <button
                     disabled
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-[14px] text-[#c7c7cc] dark:text-[#3c3c44] cursor-not-allowed text-left"
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-[14px] text-[#c7c7cc] dark:text-[#4a4a55] cursor-not-allowed text-left"
                   >
                     <BlockIcon />
                     <span>Block User</span>
-                    <span className="ml-auto text-[10px] text-[#c7c7cc] dark:text-[#3c3c44]">soon</span>
+                    <span className="ml-auto text-[10px] text-[#c7c7cc] dark:text-[#4a4a55]">soon</span>
                   </button>
                 )}
               </div>
@@ -723,11 +739,11 @@ export function MessageView({ chat }: Props) {
             <div>
               <p className="text-[16px] font-semibold text-[#1d1d1f] dark:text-[#f5f5f7]">{otherName}</p>
               {isGroup
-                ? <p className="text-[13px] text-[#8e8e93] mt-0.5">{chat.participants.length} members</p>
-                : otherUsername && <p className="text-[13px] text-[#8e8e93] mt-0.5">@{otherUsername}</p>
+                ? <p className="text-[13px] text-[#8e8e93] dark:text-[#9a9aa3] mt-0.5">{chat.participants.length} members</p>
+                : otherUsername && <p className="text-[13px] text-[#8e8e93] dark:text-[#9a9aa3] mt-0.5">@{otherUsername}</p>
               }
             </div>
-            <p className="text-[13px] text-[#aeaeb2] dark:text-[#636375] mt-1">Start the conversation.</p>
+            <p className="text-[13px] text-[#8e8e93] dark:text-[#9a9aa3] mt-1">Start the conversation.</p>
           </div>
         )}
         {messages.map((m, i) => (
@@ -1058,6 +1074,37 @@ function FileCard({ fileInfo, time, isMine, state, messageId }: FileCardProps) {
       </div>
       <div className={`flex items-center gap-1 px-3.5 pb-2 ${isMine ? 'justify-end' : 'justify-start'}`}>
         <span className="text-[11px] text-[#8e8e93] dark:text-[#636375]">{time}</span>
+        {isMine && <StatusIcon state={state} />}
+      </div>
+    </div>
+  );
+}
+
+interface VoiceBubbleSectionProps {
+  text: string;
+  time: string;
+  isMine: boolean;
+  state: string;
+}
+
+function VoiceBubbleSection({ text, time, isMine, state }: VoiceBubbleSectionProps) {
+  const info = parseVoiceInfo(text);
+  if (!info) {
+    return (
+      <div className="px-3.5 py-2.5">
+        <p className="text-[13px] text-[#aeaeb2] dark:text-[#636375] italic">Voice message unavailable</p>
+        <div className={`flex items-center gap-1 mt-1 ${isMine ? 'justify-end' : 'justify-start'}`}>
+          <span className={`text-[11px] ${isMine ? 'text-white/60 dark:text-white/50' : 'text-[#8e8e93] dark:text-[#9a9aa3]'}`}>{time}</span>
+          {isMine && <StatusIcon state={state} />}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <VoiceBubble url={info.url} durationSec={info.duration} isMine={isMine} />
+      <div className={`flex items-center gap-1 px-3.5 pb-2 ${isMine ? 'justify-end' : 'justify-start'}`}>
+        <span className={`text-[11px] ${isMine ? 'text-white/60 dark:text-white/50' : 'text-[#8e8e93] dark:text-[#9a9aa3]'}`}>{time}</span>
         {isMine && <StatusIcon state={state} />}
       </div>
     </div>

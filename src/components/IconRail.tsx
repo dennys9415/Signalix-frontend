@@ -2,23 +2,32 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuthStore } from '../store/auth.store';
 import { getStoredTheme, applyTheme, type Theme } from '../lib/theme';
 import { getMe } from '../lib/api-client';
 import { Avatar } from './Avatar';
 
+interface MeSnapshot {
+  id: string;
+  username: string;
+  displayName?: string;
+  avatarUrl?: string | null;
+}
+
 export function IconRail() {
+  const router = useRouter();
   const session = useAuthStore((s) => s.session);
+  const logout = useAuthStore((s) => s.logout);
   const [theme, setTheme] = useState<Theme>('dark');
-  const [currentUser, setCurrentUser] = useState<{ id: string; username: string; displayName?: string; avatarUrl?: string } | null>(null);
+  const [me, setMe] = useState<MeSnapshot | null>(null);
   const pathname = usePathname();
 
   useEffect(() => { setTheme(getStoredTheme()); }, []);
 
   useEffect(() => {
     if (!session) return;
-    getMe().then(({ user }) => setCurrentUser(user)).catch(() => {});
+    getMe().then(({ user }) => setMe(user)).catch(() => {});
   }, [session?.userId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function cycleTheme() {
@@ -27,12 +36,25 @@ export function IconRail() {
     applyTheme(next);
   }
 
+  function handleLogout() {
+    // auth.store.logout() already disconnects WS + clears persisted session.
+    logout();
+    router.replace('/login');
+  }
+
   const isChats = pathname?.startsWith('/chats');
+  const isProfile = pathname === '/settings/profile';
+
+  // Shared shell for every bottom-rail control so Theme / Logout / Profile
+  // all have identical hit areas, radii and animations.
+  const railItem = 'w-10 h-10 flex items-center justify-center rounded-2xl transition-all duration-200 hover:scale-[1.04] active:scale-[0.98]';
+  const railIdle = 'text-[#8e8e93] dark:text-[#9a9aa3] hover:bg-white/40 dark:hover:bg-white/[0.06] hover:text-[#1d1d1f] dark:hover:text-[#f5f5f7]';
+  const railActive = 'bg-white/55 dark:bg-white/[0.08] text-[#1d1d1f] dark:text-[#f5f5f7] backdrop-blur-xl';
 
   return (
-    <div className="flex flex-col items-center h-full py-3 gap-1">
-      {/* Logo mark */}
-      <div className="w-9 h-9 flex items-center justify-center rounded-[14px] bg-[#007aff] shadow-md shadow-[#007aff]/25 mb-2 flex-shrink-0">
+    <div className="flex flex-col items-center h-full py-3 gap-1.5">
+      {/* Logo mark — keep blue (primary brand) */}
+      <div className="w-9 h-9 flex items-center justify-center rounded-[14px] bg-[#007aff] shadow-glass-sm mb-2 flex-shrink-0">
         <SignalixMark />
       </div>
 
@@ -40,11 +62,7 @@ export function IconRail() {
       <Link
         href="/chats"
         title="Messages"
-        className={`w-10 h-10 flex items-center justify-center rounded-2xl transition-all duration-150 ${
-          isChats
-            ? 'bg-[#007aff]/[0.10] text-[#007aff] dark:text-[#0a84ff]'
-            : 'text-[#8e8e93] dark:text-[#636375] hover:bg-black/[0.05] dark:hover:bg-white/[0.05] hover:text-[#1d1d1f] dark:hover:text-[#f5f5f7]'
-        }`}
+        className={`${railItem} ${isChats ? railActive : railIdle}`}
       >
         <ChatBubbleIcon />
       </Link>
@@ -53,48 +71,54 @@ export function IconRail() {
       <button
         disabled
         title="Contacts (coming soon)"
-        className="w-10 h-10 flex items-center justify-center rounded-2xl text-[#c7c7cc] dark:text-[#3c3c44] cursor-not-allowed"
+        className="w-10 h-10 flex items-center justify-center rounded-2xl text-[#c7c7cc] dark:text-[#4a4a55] cursor-not-allowed"
       >
         <UsersIcon />
       </button>
 
-      {/* Spacer */}
+      {/* Spacer pushes the trio to the bottom */}
       <div className="flex-1" />
 
-      {/* Theme toggle */}
+      {/* 1. Theme */}
       <button
         onClick={cycleTheme}
         title={`Theme: ${theme}. Click to cycle.`}
-        className="w-10 h-10 flex items-center justify-center rounded-2xl text-[#8e8e93] dark:text-[#636375] hover:bg-black/[0.05] dark:hover:bg-white/[0.05] hover:text-[#1d1d1f] dark:hover:text-[#f5f5f7] transition-all duration-150"
+        aria-label="Cycle theme"
+        className={`${railItem} ${railIdle}`}
       >
         {theme === 'dark' ? <MoonIcon /> : theme === 'light' ? <SunIcon /> : <MonitorIcon />}
       </button>
 
-      {/* Settings */}
+      {/* 2. Logout — red accent only kicks in on hover so it doesn't dominate. */}
+      <button
+        type="button"
+        onClick={handleLogout}
+        title="Sign out"
+        aria-label="Sign out"
+        className={`${railItem} text-[#8e8e93] dark:text-[#9a9aa3] hover:bg-red-500/[0.10] dark:hover:bg-red-500/[0.12] hover:text-red-500 dark:hover:text-red-400`}
+      >
+        <LogoutIcon />
+      </button>
+
+      {/* 3. Profile (avatar) — uses the same w-10 h-10 button shell as the
+          two above so the trio reads as one icon group. Avatar renders the
+          real image when present; falls back to initials via the Avatar
+          component when avatarUrl is null. */}
       <Link
         href="/settings/profile"
-        title="Settings & Profile"
-        className={`w-10 h-10 flex items-center justify-center rounded-2xl transition-all duration-150 ${
-          pathname === '/settings/profile'
-            ? 'bg-[#007aff]/[0.10] text-[#007aff] dark:text-[#0a84ff]'
-            : 'text-[#8e8e93] dark:text-[#636375] hover:bg-black/[0.05] dark:hover:bg-white/[0.05] hover:text-[#1d1d1f] dark:hover:text-[#f5f5f7]'
-        }`}
+        title={me ? `Profile · ${me.displayName ?? me.username}` : 'Profile'}
+        aria-label="Open profile"
+        className={`${railItem} ${isProfile ? railActive : railIdle}`}
       >
-        <GearIcon />
-      </Link>
-
-      {/* User avatar */}
-      <Link href="/settings/profile" title="My profile" className="mt-1 flex-shrink-0">
-        {currentUser ? (
+        {me ? (
           <Avatar
-            name={currentUser.displayName ?? currentUser.username}
-            seed={currentUser.id}
-            avatarUrl={currentUser.avatarUrl}
+            name={me.displayName ?? me.username}
+            seed={me.id}
+            avatarUrl={me.avatarUrl ?? null}
             size="sm"
-            className="ring-2 ring-white/60 dark:ring-[#1c1c24]/60 hover:ring-[#007aff]/40 transition-all"
           />
         ) : (
-          <div className="w-8 h-8 rounded-full bg-[#e5e5ea] dark:bg-[#2c2c3a] animate-pulse" />
+          <div className="w-8 h-8 rounded-full bg-white/40 dark:bg-white/[0.06] animate-pulse" />
         )}
       </Link>
     </div>
@@ -130,18 +154,9 @@ function UsersIcon() {
   );
 }
 
-function GearIcon() {
-  return (
-    <svg viewBox="0 0 20 20" className="w-5 h-5 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="10" cy="10" r="2.5" />
-      <path d="M10 2v1.5M10 16.5V18M2 10h1.5M16.5 10H18M4.1 4.1l1.1 1.1M14.8 14.8l1.1 1.1M15.9 4.1l-1.1 1.1M5.2 14.8l-1.1 1.1" />
-    </svg>
-  );
-}
-
 function MoonIcon() {
   return (
-    <svg viewBox="0 0 20 20" className="w-4.5 h-4.5 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 20 20" className="w-5 h-5 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M17 13.5A7.5 7.5 0 1 1 6.5 3a5.5 5.5 0 0 0 10.5 10.5z" />
     </svg>
   );
@@ -149,7 +164,7 @@ function MoonIcon() {
 
 function SunIcon() {
   return (
-    <svg viewBox="0 0 20 20" className="w-4.5 h-4.5 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 20 20" className="w-5 h-5 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="10" cy="10" r="3.5" />
       <line x1="10" y1="2" x2="10" y2="3.5" />
       <line x1="10" y1="16.5" x2="10" y2="18" />
@@ -165,10 +180,22 @@ function SunIcon() {
 
 function MonitorIcon() {
   return (
-    <svg viewBox="0 0 20 20" className="w-4.5 h-4.5 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 20 20" className="w-5 h-5 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <rect x="2" y="3" width="16" height="11" rx="2" />
       <line x1="7" y1="17" x2="13" y2="17" />
       <line x1="10" y1="14" x2="10" y2="17" />
+    </svg>
+  );
+}
+
+function LogoutIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="w-5 h-5 fill-none stroke-current stroke-[1.6]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {/* Door / panel */}
+      <path d="M12 4h2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2" />
+      {/* Arrow pointing out */}
+      <polyline points="8 7 4 10 8 13" />
+      <line x1="4" y1="10" x2="13" y2="10" />
     </svg>
   );
 }

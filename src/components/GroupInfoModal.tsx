@@ -115,24 +115,24 @@ export function GroupInfoModal({ chat, currentUserId, onClose, onLeave }: Props)
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/25 backdrop-blur-md"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20 backdrop-blur-md"
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-sm rounded-3xl bg-white/95 dark:bg-[#1c1c24]/95 backdrop-blur-2xl shadow-2xl border border-black/[0.07] dark:border-white/[0.07] overflow-hidden flex flex-col max-h-[85vh]"
+        className="relative w-full max-w-sm rounded-3xl bg-white/75 dark:bg-[#1f1f28]/75 backdrop-blur-2xl shadow-glass border border-white/60 dark:border-white/[0.06] overflow-hidden flex flex-col max-h-[85vh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close */}
         <button
           onClick={onClose}
           aria-label="Close"
-          className="absolute top-3.5 right-3.5 w-7 h-7 flex items-center justify-center rounded-full bg-[#f2f2f7]/90 dark:bg-[#16161e]/80 text-[#aeaeb2] hover:text-[#6e6e73] dark:hover:text-[#8e8e93] transition-colors z-10"
+          className="absolute top-3.5 right-3.5 w-7 h-7 flex items-center justify-center rounded-full bg-white/55 dark:bg-white/[0.06] text-[#8e8e93] dark:text-[#9a9aa3] hover:text-[#1d1d1f] dark:hover:text-[#f5f5f7] transition-colors z-10"
         >
           <CloseIcon />
         </button>
 
         {/* Hero */}
-        <div className="flex flex-col items-center pt-10 pb-4 px-6 bg-gradient-to-b from-[#f2f2f7]/60 dark:from-[#16161e]/40 to-transparent flex-shrink-0">
+        <div className="flex flex-col items-center pt-10 pb-4 px-6 bg-gradient-to-b from-white/30 dark:from-white/[0.03] to-transparent flex-shrink-0">
           <Avatar name={chat.title ?? 'Group'} seed={chat.id} size="xl" />
           <div className="mt-3 text-center w-full">
             {renaming ? (
@@ -158,13 +158,13 @@ export function GroupInfoModal({ chat, currentUserId, onClose, onLeave }: Props)
                 )}
               </div>
             )}
-            <p className="text-[13px] text-[#8e8e93] mt-0.5">{chat.participants.length} members</p>
+            <p className="text-[13px] text-[#8e8e93] dark:text-[#9a9aa3] mt-0.5">{chat.participants.length} members</p>
           </div>
         </div>
 
         {/* Members list */}
         <div className="flex-1 overflow-y-auto px-3 pb-2">
-          <p className="px-2 py-2 text-[11px] font-semibold text-[#8e8e93] uppercase tracking-wide">Members</p>
+          <p className="px-2 py-2 text-[11px] font-semibold text-[#8e8e93] dark:text-[#9a9aa3] uppercase tracking-wide">Members</p>
 
           {chat.participants.map((p) => {
             const isMe = p.userId === currentUserId;
@@ -172,17 +172,17 @@ export function GroupInfoModal({ chat, currentUserId, onClose, onLeave }: Props)
             const name = p.user?.displayName ?? p.user?.username ?? 'Unknown';
             const canRemove = canManage && !isMe && !isOwner;
             return (
-              <div key={p.userId} className="flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-black/[0.03] dark:hover:bg-white/[0.03]">
+              <div key={p.userId} className="flex items-center gap-3 px-2 py-2 rounded-2xl hover:bg-white/45 dark:hover:bg-white/[0.04] transition-colors">
                 <Avatar name={name} seed={p.userId} avatarUrl={p.user?.avatarUrl} size="sm" />
                 <div className="min-w-0 flex-1">
                   <p className="text-[14px] font-medium text-[#1d1d1f] dark:text-[#f5f5f7] truncate">{name}{isMe ? ' (you)' : ''}</p>
-                  {p.user?.username && <p className="text-[12px] text-[#8e8e93] truncate">@{p.user.username}</p>}
+                  {p.user?.username && <p className="text-[12px] text-[#8e8e93] dark:text-[#9a9aa3] truncate">@{p.user.username}</p>}
                 </div>
                 {isOwner && (
-                  <span className="text-[10px] font-semibold text-[#007aff] dark:text-[#0a84ff] bg-[#007aff]/[0.08] dark:bg-[#0a84ff]/[0.10] px-2 py-0.5 rounded-full flex-shrink-0">Owner</span>
+                  <span className="text-[10px] font-semibold text-[#1d1d1f] dark:text-[#f5f5f7] bg-white/55 dark:bg-white/[0.08] px-2 py-0.5 rounded-full flex-shrink-0">Owner</span>
                 )}
                 {p.role === ParticipantRole.ADMIN && !isOwner && (
-                  <span className="text-[10px] font-semibold text-[#8e8e93] bg-black/[0.06] dark:bg-white/[0.06] px-2 py-0.5 rounded-full flex-shrink-0">Admin</span>
+                  <span className="text-[10px] font-semibold text-[#8e8e93] dark:text-[#9a9aa3] bg-white/45 dark:bg-white/[0.06] px-2 py-0.5 rounded-full flex-shrink-0">Admin</span>
                 )}
                 {canRemove && (
                   <button
@@ -201,7 +201,7 @@ export function GroupInfoModal({ chat, currentUserId, onClose, onLeave }: Props)
 
         {/* Add members section */}
         {canManage && (
-          <div className="px-3 pb-2 border-t border-black/[0.06] dark:border-white/[0.06] flex-shrink-0">
+          <div className="px-3 pb-2 border-t border-white/45 dark:border-white/[0.05] flex-shrink-0">
             {addOpen ? (
               <div className="pt-3">
                 <input
@@ -210,11 +210,11 @@ export function GroupInfoModal({ chat, currentUserId, onClose, onLeave }: Props)
                   value={addQuery}
                   onChange={handleSearchChange}
                   placeholder="Search users to add…"
-                  className="w-full px-3 py-2 rounded-xl bg-[#f2f2f7]/80 dark:bg-[#16161e]/60 border border-black/[0.05] dark:border-white/[0.06] text-[14px] text-[#1d1d1f] dark:text-[#f5f5f7] placeholder-[#aeaeb2] focus:outline-none"
+                  className="w-full px-4 py-2 rounded-full bg-white/55 dark:bg-white/[0.06] border border-white/60 dark:border-white/[0.06] text-[14px] text-[#1d1d1f] dark:text-[#f5f5f7] placeholder-[#8e8e93] dark:placeholder-[#9a9aa3] focus:outline-none focus:bg-white/75 dark:focus:bg-white/[0.08] transition-all duration-200"
                 />
-                {adding && <p className="text-[12px] text-[#aeaeb2] mt-1 px-1">Searching…</p>}
+                {adding && <p className="text-[12px] text-[#8e8e93] dark:text-[#9a9aa3] mt-1 px-1">Searching…</p>}
                 {!adding && addSearched && addResults.length === 0 && (
-                  <p className="text-[12px] text-[#aeaeb2] mt-1 px-1">No users found</p>
+                  <p className="text-[12px] text-[#8e8e93] dark:text-[#9a9aa3] mt-1 px-1">No users found</p>
                 )}
                 <div className="mt-1 max-h-36 overflow-y-auto space-y-0.5">
                   {addResults.map((u) => {
@@ -223,7 +223,7 @@ export function GroupInfoModal({ chat, currentUserId, onClose, onLeave }: Props)
                       <button
                         key={u.id}
                         onClick={() => toggleSelect(u)}
-                        className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left transition-colors ${isSelected ? 'bg-[#007aff]/[0.08] dark:bg-[#0a84ff]/[0.10]' : 'hover:bg-black/[0.04] dark:hover:bg-white/[0.04]'}`}
+                        className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-xl text-left transition-all duration-200 ${isSelected ? 'bg-white/60 dark:bg-white/[0.08]' : 'hover:bg-white/45 dark:hover:bg-white/[0.05]'}`}
                       >
                         <Avatar name={u.displayName ?? u.username} seed={u.id} avatarUrl={u.avatarUrl} size="xs" />
                         <span className="text-[13px] text-[#1d1d1f] dark:text-[#f5f5f7] truncate">{u.displayName ?? u.username}</span>
@@ -233,11 +233,11 @@ export function GroupInfoModal({ chat, currentUserId, onClose, onLeave }: Props)
                   })}
                 </div>
                 <div className="flex gap-2 mt-2">
-                  <button onClick={() => { setAddOpen(false); setSelectedToAdd([]); setAddQuery(''); }} className="flex-1 py-2 rounded-xl text-[13px] text-[#8e8e93] bg-black/[0.04] dark:bg-white/[0.04]">Cancel</button>
+                  <button onClick={() => { setAddOpen(false); setSelectedToAdd([]); setAddQuery(''); }} className="flex-1 py-2 rounded-full text-[13px] text-[#1d1d1f] dark:text-[#f5f5f7] bg-white/55 dark:bg-white/[0.06] hover:bg-white/70 dark:hover:bg-white/[0.08] transition-all duration-200">Cancel</button>
                   <button
                     onClick={() => void handleAddMembers()}
                     disabled={selectedToAdd.length === 0 || savingAdd}
-                    className="flex-1 py-2 rounded-xl text-[13px] font-semibold text-white bg-[#007aff] dark:bg-[#0a84ff] disabled:opacity-40 transition-opacity"
+                    className="flex-1 py-2 rounded-full text-[13px] font-semibold text-white bg-[#007aff] dark:bg-[#0a84ff] disabled:opacity-40 transition-all duration-200 hover:scale-[1.01] active:scale-[0.99]"
                   >
                     {savingAdd ? 'Adding…' : `Add ${selectedToAdd.length > 0 ? `(${selectedToAdd.length})` : ''}`}
                   </button>
@@ -246,7 +246,7 @@ export function GroupInfoModal({ chat, currentUserId, onClose, onLeave }: Props)
             ) : (
               <button
                 onClick={() => setAddOpen(true)}
-                className="w-full flex items-center gap-2 px-2 py-3 text-[14px] font-medium text-[#007aff] dark:text-[#0a84ff] hover:bg-[#007aff]/[0.06] rounded-xl transition-colors"
+                className="w-full flex items-center gap-2 px-2 py-3 text-[14px] font-medium text-[#007aff] dark:text-[#0a84ff] hover:bg-white/50 dark:hover:bg-white/[0.06] rounded-2xl transition-all duration-200"
               >
                 <PlusIcon />
                 Add Members
@@ -260,7 +260,7 @@ export function GroupInfoModal({ chat, currentUserId, onClose, onLeave }: Props)
           <button
             onClick={() => void handleLeave()}
             disabled={leaving}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl text-[14px] font-medium text-red-500 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-40 transition-colors"
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-full text-[14px] font-medium text-red-500 dark:text-red-400 bg-red-50/70 dark:bg-red-500/[0.10] hover:bg-red-100/80 dark:hover:bg-red-500/[0.15] disabled:opacity-40 transition-all duration-200 hover:scale-[1.01] active:scale-[0.99]"
           >
             <LeaveIcon />
             {leaving ? 'Leaving…' : 'Leave Group'}

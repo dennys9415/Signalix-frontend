@@ -220,10 +220,36 @@ export function removeAvatar(): Promise<void> {
   return authed<void>('DELETE', '/api/v1/profile/avatar');
 }
 
+// Push — VAPID key fetch is public, subscribe/unsubscribe require auth.
+export async function getPushPublicKey(): Promise<string> {
+  const data = await raw<{ publicKey: string }>('GET', '/api/v1/push/public-key');
+  return data.publicKey;
+}
+
+export function pushSubscribe(payload: {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}): Promise<{ subscribed: true }> {
+  return authed<{ subscribed: true }>('POST', '/api/v1/push/subscribe', payload);
+}
+
+export function pushUnsubscribe(endpoint: string): Promise<{ subscribed: false }> {
+  return authed<{ subscribed: false }>('DELETE', '/api/v1/push/unsubscribe', { endpoint });
+}
+
 export function uploadMedia(file: File): Promise<{ mediaUrl: string }> {
   const form = new FormData();
   form.append('media', file);
   return authedUpload<{ mediaUrl: string }>('/api/v1/media/upload', form);
+}
+
+export function uploadVoice(blob: Blob, filename: string): Promise<{ voiceUrl: string }> {
+  const form = new FormData();
+  // The File constructor preserves the MIME type the recorder produced
+  // (audio/webm or audio/mp4) so the API mime allowlist matches.
+  const file = new File([blob], filename, { type: blob.type || 'audio/webm' });
+  form.append('audio', file);
+  return authedUpload<{ voiceUrl: string }>('/api/v1/media/voice', form);
 }
 
 export function createGroupChat(dto: CreateGroupChatRequest): Promise<CreateGroupChatResponse> {
