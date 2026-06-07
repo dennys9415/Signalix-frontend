@@ -76,6 +76,22 @@ export interface CryptoService {
     preKeyId?: number;
     signedPreKeyId?: number;
   }): Promise<string>;
+
+  /**
+   * v0.9.1 safety-number foundation. Returns the cached or freshly
+   * computed safety number for the peer's identity key. The displayable
+   * form is "12345-67890-..." (12 groups of 5 decimal digits). Caching
+   * is keyed by peerUserId; if either identity key rotates the cached
+   * value is replaced. v0.10.0 will surface this in the UI.
+   */
+  getSafetyNumber?(peerUserId: string): Promise<string | null>;
+
+  /**
+   * v0.9.1 reset flag — true when init detected partial/corrupt local
+   * crypto state and regenerated identity from scratch. The chat layer
+   * surfaces this via a one-time banner.
+   */
+  wasReset?: boolean;
 }
 
 /**
@@ -88,4 +104,10 @@ export interface CryptoStatus {
   e2eeActive: boolean;
   /** The implementation's friendly name — shown in dev / settings UI. */
   implementation: string;
+  /**
+   * v0.9.1 — true when this device's crypto state was reset on init
+   * (missing/partial IndexedDB, or device id changed). The UI consumes
+   * this once to show a "your keys were reset" banner, then ack's it.
+   */
+  wasReset?: boolean;
 }

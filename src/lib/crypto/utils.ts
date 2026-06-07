@@ -98,3 +98,36 @@ export function randomRegistrationId(): number {
   crypto.getRandomValues(buf);
   return buf[0];
 }
+
+/**
+ * Verify a raw Ed25519 signature over a message. Returns `false` on any
+ * exception (malformed key, bad algorithm support, mismatched length)
+ * so callers can branch on the boolean instead of try/catch. v0.9.1
+ * uses this to gate bundle acceptance before deriving ECDH material.
+ */
+export async function verifyEd25519Signature(
+  signingKeyRaw: Uint8Array,
+  signature: Uint8Array,
+  message: Uint8Array,
+): Promise<boolean> {
+  try {
+    const key = await importEd25519Public(signingKeyRaw);
+    return await crypto.subtle.verify(
+      'Ed25519',
+      key,
+      signature as unknown as BufferSource,
+      message as unknown as BufferSource,
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Hex string (lowercase) of arbitrary bytes — used for fingerprint debug. */
+export function bytesToHex(u8: Uint8Array): string {
+  let out = '';
+  for (let i = 0; i < u8.length; i += 1) {
+    out += u8[i].toString(16).padStart(2, '0');
+  }
+  return out;
+}

@@ -27,11 +27,53 @@ export async function cachePlaintext(messageId: string, chatId: string, plaintex
   }
 }
 
+/**
+ * Record that `messageId` failed to decrypt so the UI can short-circuit
+ * repeated attempts on history reload. The placeholder text is rendered
+ * by the consumer; we only persist the `failed` flag (plus a dev-only
+ * reason hint).
+ */
+export async function cacheDecryptFailure(
+  messageId: string,
+  chatId: string,
+  reason?: string,
+): Promise<void> {
+  try {
+    const record: PlaintextCacheRecord = {
+      messageId,
+      chatId,
+      plaintext: '',
+      cachedAt: new Date().toISOString(),
+      failed: true,
+      ...(reason && process.env.NODE_ENV !== 'production' ? { failedReason: reason } : {}),
+    };
+    await idbPut<PlaintextCacheRecord>(STORE_PLAINTEXT_CACHE, record);
+  } catch {
+    // Same best-effort policy.
+  }
+}
+
 export async function lookupPlaintext(messageId: string): Promise<string | undefined> {
   try {
     const rec = await idbGet<PlaintextCacheRecord>(STORE_PLAINTEXT_CACHE, messageId);
-    return rec?.plaintext;
+    if (!rec) return undefined;
+    if (rec.failed) return undefined;
+    return rec.plaintext;
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Returns true if a prior decrypt attempt for `messageId` was recorded
+ * as failed. Callers use this to short-circuit and render the placeholder
+ * without rerunning the broken handshake.
+ */
+export async function isDecryptFailureCached(messageId: string): Promise<boolean> {
+  try {
+    const rec = await idbGet<PlaintextCacheRecord>(STORE_PLAINTEXT_CACHE, messageId);
+    return rec?.failed === true;
+  } catch {
+    return false;
   }
 }

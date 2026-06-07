@@ -22,7 +22,12 @@ import { wsClient } from '../lib/ws-client';
 import { playNotificationSound, showBrowserNotification } from '../lib/notification';
 import { useAuthStore } from './auth.store';
 import { cryptoService, DECRYPT_FAILED_PLACEHOLDER } from '../lib/crypto/crypto.service';
-import { cachePlaintext, lookupPlaintext } from '../lib/crypto/plaintext-cache';
+import {
+  cacheDecryptFailure,
+  cachePlaintext,
+  isDecryptFailureCached,
+  lookupPlaintext,
+} from '../lib/crypto/plaintext-cache';
 
 export interface TempMessage {
   tempId: string;
@@ -891,6 +896,14 @@ async function decryptStoredMessage(m: MessageDTO): Promise<MessageDTO> {
   const cached = await lookupPlaintext(m.id);
   if (cached !== undefined) return { ...m, ciphertext: cached };
 
+  // v0.9.1: if a prior decrypt for this message already failed, render
+  // the placeholder immediately. This stops history-reload from re-running
+  // the same broken handshake repeatedly and removes the brief flicker
+  // between empty body and the placeholder text.
+  if (await isDecryptFailureCached(m.id)) {
+    return { ...m, ciphertext: DECRYPT_FAILED_PLACEHOLDER };
+  }
+
   try {
     const plaintext = await cryptoService.decryptIncoming({
       ciphertext: m.ciphertext,
@@ -904,6 +917,7 @@ async function decryptStoredMessage(m: MessageDTO): Promise<MessageDTO> {
     await cachePlaintext(m.id, m.chatId, plaintext);
     return { ...m, ciphertext: plaintext };
   } catch (err) {
+    const reason = (err as Error)?.message;
     if (process.env.NODE_ENV !== 'production') {
       // eslint-disable-next-line no-console
       console.warn('[signalix-crypto] decrypt failed', {
@@ -911,9 +925,10 @@ async function decryptStoredMessage(m: MessageDTO): Promise<MessageDTO> {
         encryptionVersion: m.encryptionVersion,
         signedPreKeyId: m.signedPreKeyId,
         preKeyId: m.preKeyId,
-        reason: (err as Error)?.message,
+        reason,
       });
     }
+    void cacheDecryptFailure(m.id, m.chatId, reason);
     return { ...m, ciphertext: DECRYPT_FAILED_PLACEHOLDER };
   }
 }

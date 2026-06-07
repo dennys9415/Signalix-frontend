@@ -25,7 +25,17 @@ export function getCryptoStatus(): CryptoStatus {
   return {
     e2eeActive: cryptoService.isReady(),
     implementation: 'signal-beta-v1 (X25519 + AES-256-GCM, direct text only)',
+    wasReset: cryptoService.wasReset === true,
   };
+}
+
+/**
+ * Clear the `wasReset` flag once the UI has surfaced the reset banner.
+ * Subsequent `getCryptoStatus()` calls will report `false` until the
+ * next genuine reset (i.e. another bootstrap on a wiped IDB).
+ */
+export function acknowledgeCryptoReset(): void {
+  cryptoService.wasReset = false;
 }
 
 export { DECRYPT_FAILED_PLACEHOLDER } from './signal.service';

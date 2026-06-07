@@ -1,18 +1,19 @@
-// Signalix v0.9.0 — Signal-Protocol-style E2EE beta for direct text messages.
+// Signalix v0.9.1 — Signal-Protocol-style E2EE beta for direct text messages.
 //
 // Real cryptography. Not production-grade. Specifically:
 //   • X25519 ECDH between sender's ephemeral keypair and recipient's signed
 //     pre-key + (optionally) one-time pre-key. AES-256-GCM under HKDF-SHA256.
-//   • Ed25519 signs each signed pre-key on publish. The API does not yet
-//     verify the signature — v0.10.0 closes that gap.
+//   • Ed25519 signs each signed pre-key on publish, and **the recipient
+//     bundle's Ed25519 signature is now verified before any ECDH happens**
+//     (v0.9.1 hardening). A bundle that fails verification is rejected
+//     and `encryptForRecipient` throws — no fallback.
 //   • Single-device assumption: when a recipient has multiple devices the
 //     bundle picks the first one returned. Multi-device fan-out is v0.10.0.
 //   • No Double Ratchet — one ephemeral keypair per message, no chain
 //     keys. Forward secrecy is bounded by signed-pre-key rotation cadence.
-//   • Pre-keys are NOT deleted locally after first use (so history reload
-//     can decrypt incoming messages without a separate plaintext cache for
-//     the recipient side). Proper one-time semantics arrive with the
-//     Double Ratchet in v0.10.0.
+//   • One-time pre-keys ARE consumed locally in v0.9.1: after a successful
+//     decrypt that used `preKeyId`, the row is marked consumed and the
+//     pool auto-tops back to ~100 when it dips below the watermark.
 //
 // Sender-side history is supported by `plaintext-cache.ts`: we cache the
 // plaintext after each successful encrypt, keyed by messageId once the
@@ -20,9 +21,13 @@
 
 import { getKeyBundle, registerDeviceKeys, uploadPreKeys } from '../api-client';
 import {
+  STORE_FINGERPRINTS,
   STORE_IDENTITY,
+  STORE_PLAINTEXT_CACHE,
   STORE_PRE_KEYS,
   STORE_SIGNED_PRE_KEYS,
+  idbClearStore,
+  idbDelete,
   idbGet,
   idbGetAll,
   idbPut,
@@ -31,7 +36,12 @@ import {
   type PreKeyRecord,
   type SignedPreKeyRecord,
 } from './db';
-import type { CryptoService, EncryptedEnvelope } from './crypto.types';
+import type { CryptoService, DeviceKeyBundleDTO, EncryptedEnvelope } from './crypto.types';
+import {
+  cacheSafetyNumber,
+  computeSafetyNumber,
+  lookupSafetyNumber,
+} from './fingerprints';
 import {
   base64UrlToBytes,
   bytesToBase64Url,
@@ -39,13 +49,20 @@ import {
   hkdfAesKey,
   importX25519Public,
   randomRegistrationId,
+  verifyEd25519Signature,
 } from './utils';
 
-// Tunables — kept conservative for v0.9.0 beta.
+// Tunables — kept conservative for the v0.9.x beta.
 const INITIAL_PRE_KEY_COUNT = 100;
+const PRE_KEY_TARGET_COUNT = 100;
 const PRE_KEY_LOW_WATERMARK = 20;
-const PRE_KEY_TOPUP_COUNT = 80;
+const PRE_KEY_TOPUP_FLOOR = 80;
 const HKDF_INFO = 'signalix-v1-direct-text';
+
+// Wire-format byte sizes for X25519 (raw) and Ed25519 (raw / signature).
+const X25519_RAW_BYTES = 32;
+const ED25519_RAW_BYTES = 32;
+const ED25519_SIG_BYTES = 64;
 
 /** Sentinel ciphertext rendered when decryption can't recover the plaintext. */
 export const DECRYPT_FAILED_PLACEHOLDER = '[Unable to decrypt message]';
@@ -64,6 +81,8 @@ export class SignalCryptoService implements CryptoService {
   private ready = false;
   private deviceId: string | null = null;
   private initPromise: Promise<void> | null = null;
+  /** v0.9.1 — true when init detected a corrupt/partial local state and reset. */
+  wasReset = false;
 
   isReady(): boolean {
     return this.ready;
@@ -91,27 +110,60 @@ export class SignalCryptoService implements CryptoService {
     const deviceId = this.deviceId!;
 
     const existing = await idbGet<IdentityRecord>(STORE_IDENTITY, 'default');
+    const spkRows = await idbGetAll<SignedPreKeyRecord>(STORE_SIGNED_PRE_KEYS);
+    const preKeyRows = await idbGetAll<PreKeyRecord>(STORE_PRE_KEYS);
 
-    if (!existing || existing.deviceId !== deviceId) {
-      // Fresh device, OR same browser but the user logged out and back in
-      // as a different device. Regenerate everything. (If the same user
-      // logs back in we keep our key material; if not, the old session's
-      // identity is no longer associated with the new device and we
-      // must publish fresh keys against the new deviceId anyway.)
+    const sameDevice = existing && existing.deviceId === deviceId;
+    // v0.9.1: detect a torn-down or partially-populated IDB. If we have
+    // an identity record but no signed pre-key (or zero unconsumed pre-keys
+    // *and* zero archived pre-keys), the local state can't decrypt or
+    // encrypt — regenerate from scratch and mark `wasReset` so the UI
+    // can surface a one-time banner.
+    const partial = sameDevice && (spkRows.length === 0 || preKeyRows.length === 0);
+
+    if (!existing || !sameDevice || partial) {
+      if (existing && (!sameDevice || partial)) {
+        if (process.env.NODE_ENV !== 'production') {
+          // eslint-disable-next-line no-console
+          console.warn(
+            '[signalix-crypto] local crypto state reset',
+            { sameDevice, hadSpk: spkRows.length > 0, hadPreKeys: preKeyRows.length > 0 },
+          );
+        }
+        await this.wipeLocalState();
+        this.wasReset = true;
+      }
       await this.generateAndPublish(deviceId);
     } else {
-      // Top up the pre-key pool if it's running low.
-      const preKeys = await idbGetAll<PreKeyRecord>(STORE_PRE_KEYS);
-      if (preKeys.length < PRE_KEY_LOW_WATERMARK) {
-        await this.topUpPreKeys(preKeys.length);
+      const unconsumed = preKeyRows.filter((p) => !p.consumed).length;
+      if (unconsumed < PRE_KEY_LOW_WATERMARK) {
+        await this.topUpPreKeys(unconsumed);
       }
     }
 
     this.ready = true;
     if (process.env.NODE_ENV !== 'production') {
       // eslint-disable-next-line no-console
-      console.info('[signalix-crypto] Signal service ready (v0.9.0 beta direct-text E2EE)');
+      console.info(
+        '[signalix-crypto] Signal service ready (v0.9.1 hardening — direct-text E2EE)',
+        { wasReset: this.wasReset },
+      );
     }
+  }
+
+  private async wipeLocalState(): Promise<void> {
+    // Clear every crypto-only store before regenerating. The plaintext
+    // cache is included on purpose: envelopes that referenced the old
+    // SPK can no longer be decrypted, so cached rows for them are now
+    // unreachable. Fingerprints are also rebuilt since our identity
+    // public key just changed.
+    await Promise.all([
+      idbDelete(STORE_IDENTITY, 'default'),
+      idbClearStore(STORE_SIGNED_PRE_KEYS),
+      idbClearStore(STORE_PRE_KEYS),
+      idbClearStore(STORE_PLAINTEXT_CACHE),
+      idbClearStore(STORE_FINGERPRINTS),
+    ]);
   }
 
   private async generateAndPublish(deviceId: string): Promise<void> {
@@ -143,7 +195,7 @@ export class SignalCryptoService implements CryptoService {
     // 31-bit positive int — safely fits PostgreSQL INTEGER.
     const spkKeyId = randomKeyId();
 
-    const preKeyPairs = await this.generatePreKeyBatch(0, INITIAL_PRE_KEY_COUNT);
+    const preKeyPairs = await this.generatePreKeyBatch(INITIAL_PRE_KEY_COUNT);
 
     // Persist locally first — if the API call fails we still want to be
     // able to retry publish on the next init without regenerating.
@@ -200,7 +252,6 @@ export class SignalCryptoService implements CryptoService {
   }
 
   private async generatePreKeyBatch(
-    startId: number,
     count: number,
   ): Promise<Array<{ keyId: number; pair: CryptoKeyPair }>> {
     const out: Array<{ keyId: number; pair: CryptoKeyPair }> = [];
@@ -213,14 +264,14 @@ export class SignalCryptoService implements CryptoService {
       // Random 31-bit positive — avoids collisions if we ever multi-device.
       out.push({ keyId: randomKeyId(), pair });
     }
-    void startId;
     return out;
   }
 
-  private async topUpPreKeys(currentCount: number): Promise<void> {
-    const need = PRE_KEY_TOPUP_COUNT - Math.min(currentCount, PRE_KEY_TOPUP_COUNT);
+  private async topUpPreKeys(currentUnconsumed: number): Promise<void> {
+    const target = Math.max(PRE_KEY_TARGET_COUNT, PRE_KEY_TOPUP_FLOOR);
+    const need = target - currentUnconsumed;
     if (need <= 0) return;
-    const fresh = await this.generatePreKeyBatch(0, need);
+    const fresh = await this.generatePreKeyBatch(need);
     await idbPutMany(
       STORE_PRE_KEYS,
       fresh.map<PreKeyRecord>((p) => ({
@@ -252,16 +303,27 @@ export class SignalCryptoService implements CryptoService {
       throw new Error('Crypto service not initialized');
     }
     if (!recipient.recipientUserId) {
-      throw new Error('recipientUserId is required for v0.9.0 E2EE encryption');
+      throw new Error('recipientUserId is required for v0.9.x E2EE encryption');
     }
 
     const bundleResponse = await getKeyBundle(recipient.recipientUserId);
-    // v0.9.0 beta: single-device — pick the first bundle. v0.10.0 will
+    // v0.9.x beta: single-device — pick the first bundle. v0.10.0 will
     // fan out to every bundle.
-    const bundle = bundleResponse.bundles[0];
+    const bundle = bundleResponse.bundles[0] as DeviceKeyBundleDTO | undefined;
     if (!bundle) {
       throw new Error('Recipient has no published key bundle');
     }
+
+    // v0.9.1 hardening: validate every byte we're about to derive from
+    // *before* touching crypto.subtle. A corrupted or attacker-supplied
+    // bundle gets rejected with a clear error rather than producing
+    // unreadable ciphertext.
+    await assertBundleIsValid(bundle);
+
+    // Compute / cache the per-peer safety number using the freshly
+    // validated peer identity. Best-effort: a failure here must not
+    // block sending the message.
+    void this.maybeCacheSafetyNumber(recipient.recipientUserId, bundle.identityKey);
 
     const recipSpkPub = await importX25519Public(base64UrlToBytes(bundle.signedPreKey.publicKey));
     const recipPreKeyPub = bundle.preKey
@@ -404,11 +466,154 @@ export class SignalCryptoService implements CryptoService {
       base64UrlToBytes(parsed.c),
     );
     const plaintext = new TextDecoder().decode(ptBuf);
+
+    // v0.9.1: mark the one-time pre-key consumed locally (it was already
+    // marked consumed server-side at bundle hand-out time, but mirroring
+    // here lets the local top-up math stay accurate and prevents future
+    // reuse if the same envelope is replayed). Then trigger top-up if
+    // the unconsumed pool dipped below the watermark.
+    if (preKey && !preKey.consumed) {
+      preKey.consumed = true;
+      try {
+        await idbPut<PreKeyRecord>(STORE_PRE_KEYS, preKey);
+      } catch {
+        // Best-effort — the worst case is we re-mark on next decrypt.
+      }
+      void this.maybeTopUpAfterConsume();
+    }
+
     if (process.env.NODE_ENV !== 'production') {
       // eslint-disable-next-line no-console
       console.info('[signalix-crypto] decrypt success');
     }
     return plaintext;
+  }
+
+  async getSafetyNumber(peerUserId: string): Promise<string | null> {
+    try {
+      const cached = await lookupSafetyNumber(peerUserId);
+      if (cached) return cached.safetyNumber;
+
+      // No cache — fetch the peer's bundle, validate it, then compute.
+      const bundleResponse = await getKeyBundle(peerUserId);
+      const bundle = bundleResponse.bundles[0];
+      if (!bundle) return null;
+      await assertBundleIsValid(bundle);
+      await this.maybeCacheSafetyNumber(peerUserId, bundle.identityKey);
+      const stored = await lookupSafetyNumber(peerUserId);
+      return stored?.safetyNumber ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async maybeCacheSafetyNumber(peerUserId: string, peerIdentityKeyB64: string): Promise<void> {
+    try {
+      const identity = await idbGet<IdentityRecord>(STORE_IDENTITY, 'default');
+      if (!identity) return;
+      const localIdentityRaw = new Uint8Array(
+        await crypto.subtle.exportKey('raw', identity.identityPair.publicKey),
+      );
+      const localIdentityB64 = bytesToBase64Url(localIdentityRaw);
+      const existing = await lookupSafetyNumber(peerUserId);
+      if (
+        existing
+        && existing.localIdentityKey === localIdentityB64
+        && existing.peerIdentityKey === peerIdentityKeyB64
+      ) {
+        return; // nothing changed
+      }
+      const peerRaw = base64UrlToBytes(peerIdentityKeyB64);
+      const safetyNumber = await computeSafetyNumber(localIdentityRaw, peerRaw);
+      await cacheSafetyNumber({
+        peerUserId,
+        localIdentityKey: localIdentityB64,
+        peerIdentityKey: peerIdentityKeyB64,
+        safetyNumber,
+      });
+    } catch {
+      // best-effort
+    }
+  }
+
+  private async maybeTopUpAfterConsume(): Promise<void> {
+    try {
+      const all = await idbGetAll<PreKeyRecord>(STORE_PRE_KEYS);
+      const unconsumed = all.filter((p) => !p.consumed).length;
+      if (unconsumed < PRE_KEY_LOW_WATERMARK) {
+        await this.topUpPreKeys(unconsumed);
+      }
+    } catch {
+      // best-effort
+    }
+  }
+}
+
+/**
+ * Validate a recipient bundle structurally and cryptographically. Throws
+ * a descriptive Error on the first problem. v0.9.1 hardening — callers
+ * MUST run this before deriving any ECDH material from the bundle.
+ */
+async function assertBundleIsValid(bundle: DeviceKeyBundleDTO): Promise<void> {
+  if (!bundle.identityKey || !bundle.signingKey || !bundle.signedPreKey) {
+    throw new Error('Recipient bundle is missing required fields');
+  }
+  if (
+    typeof bundle.signedPreKey.keyId !== 'number'
+    || bundle.signedPreKey.keyId < 0
+    || !Number.isFinite(bundle.signedPreKey.keyId)
+  ) {
+    throw new Error('Recipient bundle has an invalid signedPreKey.keyId');
+  }
+  let identityRaw: Uint8Array;
+  let signingRaw: Uint8Array;
+  let spkRaw: Uint8Array;
+  let sigRaw: Uint8Array;
+  try {
+    identityRaw = base64UrlToBytes(bundle.identityKey);
+    signingRaw = base64UrlToBytes(bundle.signingKey);
+    spkRaw = base64UrlToBytes(bundle.signedPreKey.publicKey);
+    sigRaw = base64UrlToBytes(bundle.signedPreKey.signature);
+  } catch {
+    throw new Error('Recipient bundle has malformed base64url material');
+  }
+  if (identityRaw.length !== X25519_RAW_BYTES) {
+    throw new Error(`Recipient identityKey has wrong byte length ${identityRaw.length}`);
+  }
+  if (signingRaw.length !== ED25519_RAW_BYTES) {
+    throw new Error(`Recipient signingKey has wrong byte length ${signingRaw.length}`);
+  }
+  if (spkRaw.length !== X25519_RAW_BYTES) {
+    throw new Error(`Recipient signedPreKey.publicKey has wrong byte length ${spkRaw.length}`);
+  }
+  if (sigRaw.length !== ED25519_SIG_BYTES) {
+    throw new Error(`Recipient signedPreKey.signature has wrong byte length ${sigRaw.length}`);
+  }
+  if (bundle.preKey) {
+    let preKeyRaw: Uint8Array;
+    try {
+      preKeyRaw = base64UrlToBytes(bundle.preKey.publicKey);
+    } catch {
+      throw new Error('Recipient bundle has malformed preKey.publicKey');
+    }
+    if (preKeyRaw.length !== X25519_RAW_BYTES) {
+      throw new Error(`Recipient preKey.publicKey has wrong byte length ${preKeyRaw.length}`);
+    }
+    if (typeof bundle.preKey.keyId !== 'number' || bundle.preKey.keyId < 0) {
+      throw new Error('Recipient preKey.keyId is invalid');
+    }
+  }
+
+  const sigOk = await verifyEd25519Signature(signingRaw, sigRaw, spkRaw);
+  if (!sigOk) {
+    if (process.env.NODE_ENV !== 'production') {
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[signalix-crypto] signed pre-key signature did NOT verify',
+        { deviceId: bundle.deviceId, signedPreKeyId: bundle.signedPreKey.keyId },
+      );
+    }
+    throw new Error('Recipient signed pre-key signature failed verification');
   }
 }
 

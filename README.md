@@ -1,10 +1,10 @@
 # Signalix Frontend
 
-**Version: v0.9.0**
+**Version: v0.9.1**
 
-Next.js 15 chat client for Signalix. Direct + group chats, text / image / file / **voice note** messages, reactions, replies, forwards, edit, delete-for-me / for-everyone, link previews, typing indicators, presence, avatar upload, draft chat UX, and the full auth stack (local + Google / GitHub / Apple OAuth). Installable as a Progressive Web App with Web Push notifications. v0.9.0 turns on **real beta end-to-end encryption for direct text messages** via `src/lib/crypto/signal.service.ts` — X25519 ECDH + AES-256-GCM, keys generated in the browser, stored in IndexedDB, never sent to the server.
+Next.js 15 chat client for Signalix. Direct + group chats, text / image / file / **voice note** messages, reactions, replies, forwards, edit, delete-for-me / for-everyone, link previews, typing indicators, presence, avatar upload, draft chat UX, and the full auth stack (local + Google / GitHub / Apple OAuth). Installable as a Progressive Web App with Web Push notifications. **v0.9.1 hardens the beta E2EE for direct text messages**: recipient bundles are validated and the Ed25519 signature on their signed pre-key is verified before any ECDH derivation; one-time pre-keys are consumed and auto-topped-up; corrupt local crypto state auto-recovers with a one-time banner; failed decrypts are cached so re-renders don't re-run broken handshakes; and a per-peer safety-number foundation is in place (no UI yet — that's v0.10.0).
 
-> ⚠️ **Beta E2EE — not production-grade.** Direct text messages are encrypted between v0.9.0+ clients. **Groups, images, files, voice notes remain plaintext** on the server (and the receiver-side preview rendering hasn't changed for them). No Double Ratchet, no multi-device fan-out, no server-side signed-pre-key signature verification yet. **v0.10.0** hardens this; v0.11.0+ extends to groups + media. The chat header shows a 🔒 "End-to-end encrypted beta" pill for direct chats; messages that fail to decrypt render as `[Unable to decrypt message]`.
+> ⚠️ **Beta E2EE — not production-grade.** Direct text messages are encrypted between v0.9.0+ clients. **Groups, images, files, voice notes remain plaintext** on the server (and the receiver-side preview rendering hasn't changed for them). No Double Ratchet, no multi-device fan-out yet. **v0.10.0** lands those plus the safety-number verification UI; v0.11.0+ extends encryption to groups + media. The chat header shows a 🔒 "End-to-end encrypted beta" pill for direct chats; messages that fail to decrypt render as `[Unable to decrypt message]`; if local crypto state had to be regenerated the user sees an amber **"Encryption keys were reset on this device."** banner once.
 
 ## Stack
 
@@ -74,6 +74,15 @@ npm run typecheck   # tsc --noEmit
 ```bash
 npm run build   # outputs to .next/
 ```
+
+### Tests
+
+```bash
+npm test         # vitest run — unit tests for the crypto layer
+npm run test:watch
+```
+
+v0.9.1 adds `vitest` (Node 20+ for X25519 / Ed25519 support in the test environment). Coverage is intentionally narrow: pure crypto utilities (`utils.test.ts`) and safety-number derivation (`fingerprints.test.ts`). UI/integration tests are out of scope for v0.9.x.
 
 ## How to use
 
@@ -270,6 +279,26 @@ Available since v0.6.1. Composer mic button replaces the send button while the t
 - No waveform rendering, no playback speed, no scrubbing (seek-to-position) — only play/pause + progress.
 - Duration is recorder-reported; once `<audio>` metadata loads, the player overrides it with the file's real duration.
 - iOS requires the user to interact before mic capture works (browser policy).
+
+## v0.9.1 changelog — E2EE hardening
+
+### Added
+- **Bundle validation + signature verification before encrypt** — `signal.service.assertBundleIsValid` runs structural checks (required fields, base64url decodability), exact byte-length checks (32 / 32 / 32 / 64; 32 for the optional pre-key), and an **Ed25519 verify** of `signedPreKey.signature` against `signingKey` over `signedPreKey.publicKey` before any ECDH derivation. A tampered or malformed bundle throws — no plaintext fallback.
+- **One-time pre-key consumption + auto top-up.** `decryptIncoming` marks `PreKeyRecord.consumed = true` on success, then asynchronously checks the unconsumed count. Below 20 → generate fresh X25519 pairs and publish them via `POST /crypto/devices/pre-keys` until the pool is back at ~100.
+- **Device reset detection + banner.** `signal.service.init` detects no-identity / different-deviceId / partial-state and regenerates everything, sets `wasReset = true`, and clears the four crypto-only IDB stores + plaintext cache + fingerprint cache. New `EncryptionResetBanner` component (mounted in `app/chats/layout.tsx`) renders a dismissible amber notice once.
+- **Decrypt failure cache.** `PlaintextCacheRecord.failed` (+ dev-only `failedReason`) records messages whose decrypt has already failed. `chat.store.decryptStoredMessage` short-circuits on cached failure — no re-run, no flicker between empty body and the placeholder.
+- **Safety-number foundation** (no UI yet). New `src/lib/crypto/fingerprints.ts` computes a 12-group / 5-digit safety number (5200 SHA-256 rounds, ordered lexicographically, extended to 60 bytes). Stored in a new `fingerprints` IDB store (`peerUserId` keyed). `SignalCryptoService.getSafetyNumber(peerUserId)` returns the cached or freshly computed value.
+- **IndexedDB schema bump v1 → v2.** Adds the `fingerprints` store; existing rows survive. New `idbDelete` and `idbClearStore` helpers used by the reset path.
+- **Tests.** `vitest` dev dep + `npm test` script. Coverage: base64url round-trip, `concatBytes`, `bytesToHex`, `verifyEd25519Signature` (positive / tampered / malformed-key), safety-number format / symmetry / sensitivity. 10/10 passing.
+
+### Fixed
+- Sender no longer encrypts to a forged or corrupted bundle. Before v0.9.1 any 32-byte string at `signedPreKey.publicKey` would have been accepted.
+- Top-up math now counts only unconsumed pre-keys instead of all rows — prevents an effectively empty pool with a healthy-looking row count.
+- Repeated decrypt attempts on history reload. Failed messages used to re-run the handshake on every render; v0.9.1 caches the failure and short-circuits.
+
+### Not changed
+- Wire protocol, contracts, REST routes, WS payloads — identical to v0.9.0. A v0.9.0 client whose bundle was well-formed keeps working unchanged.
+- Realtime service untouched.
 
 ## v0.9.0 changelog — Signal Protocol Beta (direct text only)
 

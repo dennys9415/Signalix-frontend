@@ -27,12 +27,15 @@
 // `pair` object reference (KeyPair).
 
 export const CRYPTO_DB_NAME = 'signalix-crypto-v1';
-export const CRYPTO_DB_VERSION = 1;
+// v0.9.1 bumps schema to 2 to add the fingerprints store. Existing rows
+// in identity/pre-keys/etc. survive the upgrade unchanged.
+export const CRYPTO_DB_VERSION = 2;
 
 export const STORE_IDENTITY = 'identity';
 export const STORE_SIGNED_PRE_KEYS = 'signed-pre-keys';
 export const STORE_PRE_KEYS = 'pre-keys';
 export const STORE_PLAINTEXT_CACHE = 'plaintext-cache';
+export const STORE_FINGERPRINTS = 'fingerprints';
 
 export interface IdentityRecord {
   id: 'default';
@@ -61,8 +64,40 @@ export interface PreKeyRecord {
 export interface PlaintextCacheRecord {
   messageId: string;
   chatId: string;
+  /**
+   * Plaintext for cached entries. When `failed` is true this stays
+   * empty — the placeholder text is supplied by the consumer
+   * (`DECRYPT_FAILED_PLACEHOLDER`) so we don't store the sentinel string
+   * twice or have to migrate it later.
+   */
   plaintext: string;
   cachedAt: string;
+  /**
+   * Marks a previous decrypt attempt that failed. Short-circuits future
+   * attempts in the UI so we don't re-run the same broken handshake on
+   * every render or history reload — and so the placeholder doesn't
+   * flicker between empty and "[Unable to decrypt]".
+   */
+  failed?: boolean;
+  /** Optional, captured in dev only: short reason for the failure. */
+  failedReason?: string;
+}
+
+/**
+ * Safety-number foundation. v0.9.1 stores per-peer fingerprints so the
+ * device-verification UI in v0.10.0 can render them without rederiving.
+ * The displayable form is 12 groups of 5 decimal digits.
+ */
+export interface FingerprintRecord {
+  /** Peer user id (the target user, not device — v0.9.1 is single-device). */
+  peerUserId: string;
+  /** Our local identity public key at the time the fingerprint was computed. */
+  localIdentityKey: string;
+  /** Peer's identity public key at the time the fingerprint was computed. */
+  peerIdentityKey: string;
+  /** "12345-67890-..." — 12 groups of 5 decimal digits. */
+  safetyNumber: string;
+  computedAt: string;
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -87,6 +122,9 @@ export function openCryptoDb(): Promise<IDBDatabase> {
         }
         if (!db.objectStoreNames.contains(STORE_PLAINTEXT_CACHE)) {
           db.createObjectStore(STORE_PLAINTEXT_CACHE, { keyPath: 'messageId' });
+        }
+        if (!db.objectStoreNames.contains(STORE_FINGERPRINTS)) {
+          db.createObjectStore(STORE_FINGERPRINTS, { keyPath: 'peerUserId' });
         }
       };
       req.onsuccess = () => resolve(req.result);
@@ -134,6 +172,26 @@ export async function idbCount(store: string): Promise<number> {
     const req = tx.objectStore(store).count();
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
+  });
+}
+
+export async function idbDelete(store: string, key: IDBValidKey): Promise<void> {
+  const db = await openCryptoDb();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function idbClearStore(store: string): Promise<void> {
+  const db = await openCryptoDb();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
 

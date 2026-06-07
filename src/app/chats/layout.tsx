@@ -6,6 +6,7 @@ import { useAuthStore } from '../../store/auth.store';
 import { useChatStore } from '../../store/chat.store';
 import { SidebarProvider, useSidebar } from '../../lib/sidebar-context';
 import { ChatSidebar } from '../../components/ChatSidebar';
+import { EncryptionResetBanner } from '../../components/EncryptionResetBanner';
 import { IconRail } from '../../components/IconRail';
 import { requestNotificationPermission } from '../../lib/notification';
 
@@ -63,6 +64,7 @@ function ChatsShell({ children }: { children: React.ReactNode }) {
           open ? 'hidden' : 'flex'
         } md:flex flex-1 min-h-0 flex-col overflow-hidden surface-glass md:rounded-3xl md:shadow-glass`}
       >
+        <EncryptionResetBanner />
         {children}
       </main>
     </div>

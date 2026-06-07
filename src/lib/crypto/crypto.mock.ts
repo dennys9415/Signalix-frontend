@@ -15,6 +15,8 @@ import type { CryptoService, CryptoStatus, EncryptedEnvelope } from './crypto.ty
 export class MockCryptoService implements CryptoService {
   private ready = false;
   private deviceId: string | null = null;
+  /** Mock never resets — kept on the type for shape parity with the real impl. */
+  wasReset = false;
 
   async init(opts: { deviceId: string }): Promise<void> {
     this.deviceId = opts.deviceId;
@@ -48,6 +50,12 @@ export class MockCryptoService implements CryptoService {
       return '[encrypted message — upgrade to view]';
     }
     return envelope.ciphertext;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async getSafetyNumber(_peerUserId: string): Promise<string | null> {
+    // Mock has no identity to derive from; safety numbers are a real-E2EE feature.
+    return null;
   }
 }
 
