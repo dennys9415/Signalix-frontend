@@ -38,6 +38,6 @@ export function acknowledgeCryptoReset(): void {
   cryptoService.wasReset = false;
 }
 
-export { DECRYPT_FAILED_PLACEHOLDER } from './signal.service';
+export { DECRYPT_FAILED_PLACEHOLDER, DECRYPT_FAILED_ATTACHMENT_PLACEHOLDER } from './signal.service';
 
 export type { CryptoService, CryptoStatus, EncryptedEnvelope } from './crypto.types';

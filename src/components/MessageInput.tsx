@@ -3,7 +3,13 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import type React from 'react';
 import { MessageType } from '@signalix/contracts';
-import { uploadMedia, uploadFile, uploadVoice } from '../lib/api-client';
+import { uploadEncryptedBlob } from '../lib/api-client';
+import {
+  encodeIvForWire,
+  encodeKeyForWire,
+  encryptFile,
+  type MediaMetadataV1,
+} from '../lib/crypto/file-crypto';
 
 const FILE_EXTENSIONS = '.pdf,.docx,.xlsx,.pptx,.txt,.csv,.zip';
 const MAX_RECORD_SECONDS = 5 * 60; // hard cap to avoid runaway recordings
@@ -117,14 +123,28 @@ export function MessageInput({ onSend, replyingTo, onCancelReply, disabled, onTy
       setUploading(true);
       setUploadError(null);
       try {
+        // v0.11.0 — encrypt locally then upload. The metadata JSON we
+        // pass to `onSend` becomes the plaintext that chat.store
+        // encrypts per-recipient via the existing message-envelope
+        // pipeline. The server only ever sees ciphertext bytes + the
+        // already-encrypted per-recipient envelope.
+        const file = attachment.file;
+        const { ciphertext: blobCt, key, iv } = await encryptFile(file);
+        const { url, size } = await uploadEncryptedBlob(blobCt);
+        const metadata: MediaMetadataV1 = {
+          v: 1,
+          url,
+          k: encodeKeyForWire(key),
+          iv: encodeIvForWire(iv),
+          mime: file.type || (attachment.kind === 'image' ? 'application/octet-stream' : 'application/octet-stream'),
+          size,
+        };
         if (attachment.kind === 'image') {
-          const { mediaUrl } = await uploadMedia(attachment.file);
-          onSend(mediaUrl, replyingTo?.messageId, MessageType.IMAGE);
+          onSend(JSON.stringify(metadata), replyingTo?.messageId, MessageType.IMAGE);
           URL.revokeObjectURL(attachment.previewUrl);
         } else {
-          const { fileUrl, fileName, fileSize } = await uploadFile(attachment.file);
-          const ciphertext = JSON.stringify({ url: fileUrl, name: fileName, size: fileSize });
-          onSend(ciphertext, replyingTo?.messageId, MessageType.FILE);
+          metadata.filename = file.name;
+          onSend(JSON.stringify(metadata), replyingTo?.messageId, MessageType.FILE);
         }
         setAttachment(null);
       } catch (err) {
@@ -314,11 +334,21 @@ export function MessageInput({ onSend, replyingTo, onCancelReply, disabled, onTy
     setUploading(true);
     setUploadError(null);
     try {
-      const ext = blob.type.includes('mp4') ? '.m4a' : blob.type.includes('ogg') ? '.ogg' : '.webm';
-      const filename = `voice-${Date.now()}${ext}`;
-      const { voiceUrl } = await uploadVoice(blob, filename);
-      const ciphertext = JSON.stringify({ url: voiceUrl, duration: durationSec, size: blob.size });
-      onSend(ciphertext, replyingTo?.messageId, MessageType.AUDIO);
+      // v0.11.0 — encrypt the voice blob client-side then upload the
+      // ciphertext. Mime is preserved inside the encrypted metadata so
+      // the recipient knows how to render (.webm vs .m4a etc).
+      const { ciphertext: blobCt, key, iv } = await encryptFile(blob);
+      const { url, size } = await uploadEncryptedBlob(blobCt);
+      const metadata: MediaMetadataV1 = {
+        v: 1,
+        url,
+        k: encodeKeyForWire(key),
+        iv: encodeIvForWire(iv),
+        mime: blob.type || 'audio/webm',
+        size,
+        duration: durationSec,
+      };
+      onSend(JSON.stringify(metadata), replyingTo?.messageId, MessageType.AUDIO);
     } catch (err) {
       setUploadError((err as Error).message ?? 'Voice upload failed');
     } finally {

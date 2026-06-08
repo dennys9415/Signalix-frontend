@@ -285,6 +285,21 @@ export function uploadVoice(blob: Blob, filename: string): Promise<{ voiceUrl: s
   return authedUpload<{ voiceUrl: string }>('/api/v1/media/voice', form);
 }
 
+/**
+ * v0.11.0 — upload a client-side-encrypted blob. The server stores it
+ * as opaque bytes under `encrypted/{userId}/{uuid}.bin`. No MIME
+ * validation — the bytes are AES-GCM ciphertext.
+ */
+export function uploadEncryptedBlob(ciphertext: Uint8Array): Promise<{ url: string; size: number }> {
+  const form = new FormData();
+  const blob = new Blob([ciphertext as unknown as BlobPart], { type: 'application/octet-stream' });
+  // The multer FileInterceptor needs a filename to materialize a File; the
+  // contents are opaque anyway, so a constant `.bin` is fine.
+  const file = new File([blob], 'attachment.bin', { type: 'application/octet-stream' });
+  form.append('blob', file);
+  return authedUpload<{ url: string; size: number }>('/api/v1/media/encrypted-blob', form);
+}
+
 export function createGroupChat(dto: CreateGroupChatRequest): Promise<CreateGroupChatResponse> {
   return authed<CreateGroupChatResponse>('POST', '/api/v1/chats/group', dto);
 }

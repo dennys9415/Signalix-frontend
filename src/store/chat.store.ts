@@ -28,7 +28,11 @@ import * as api from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
 import { playNotificationSound, showBrowserNotification } from '../lib/notification';
 import { useAuthStore } from './auth.store';
-import { cryptoService, DECRYPT_FAILED_PLACEHOLDER } from '../lib/crypto/crypto.service';
+import {
+  cryptoService,
+  DECRYPT_FAILED_ATTACHMENT_PLACEHOLDER,
+  DECRYPT_FAILED_PLACEHOLDER,
+} from '../lib/crypto/crypto.service';
 import {
   cacheDecryptFailure,
   cachePlaintext,
@@ -891,9 +895,17 @@ async function dispatchSend(args: DispatchSendArgs): Promise<void> {
   let signedPreKeyId: number | undefined;
   let recipients: GroupRecipientPayloadDTO[] | undefined;
 
-  // v0.9.0: direct TEXT only. v0.10.0 extends to group TEXT (beta) via
-  // per-recipient fan-out. Media, files, voice still flow as plaintext.
-  const isEncryptable = args.messageType === MessageType.TEXT;
+  // v0.9.0: direct TEXT only.
+  // v0.10.0: extends to group TEXT (beta) via per-recipient fan-out.
+  // v0.11.0: covers IMAGE / FILE / AUDIO as well — the plaintext we
+  //   encrypt is the attachment's metadata JSON ({ url, k, iv, mime,
+  //   size, … } built in MessageInput). The encrypted blob itself is
+  //   already in MinIO; the envelope just protects the media key.
+  const isEncryptable =
+    args.messageType === MessageType.TEXT
+    || args.messageType === MessageType.IMAGE
+    || args.messageType === MessageType.FILE
+    || args.messageType === MessageType.AUDIO;
 
   if (isEncryptable && cryptoService.isReady()) {
     const directRecipientId = resolveDirectRecipient(args.state, args);
@@ -1130,7 +1142,21 @@ async function encryptForGroup(
 async function decryptStoredMessage(m: MessageDTO): Promise<MessageDTO> {
   const isEncrypted = !!m.encryptionVersion && m.encryptionVersion >= 1;
   if (!isEncrypted) return m;
-  if (m.messageType !== MessageType.TEXT) return m;
+
+  // v0.11.0: IMAGE / FILE / AUDIO are also encrypted — their plaintext
+  // is the attachment metadata JSON (`MediaMetadataV1`) and MessageView
+  // parses it on render. Only encryption-irrelevant types short-circuit
+  // (none exist today; left as a defensive guard for future types).
+  const isSupportedType =
+    m.messageType === MessageType.TEXT
+    || m.messageType === MessageType.IMAGE
+    || m.messageType === MessageType.FILE
+    || m.messageType === MessageType.AUDIO;
+  if (!isSupportedType) return m;
+
+  const placeholder = m.messageType === MessageType.TEXT
+    ? DECRYPT_FAILED_PLACEHOLDER
+    : DECRYPT_FAILED_ATTACHMENT_PLACEHOLDER;
 
   const cached = await lookupPlaintext(m.id);
   if (cached !== undefined) return { ...m, ciphertext: cached };
@@ -1149,7 +1175,7 @@ async function decryptStoredMessage(m: MessageDTO): Promise<MessageDTO> {
         messageId: m.id,
       });
     }
-    return { ...m, ciphertext: DECRYPT_FAILED_PLACEHOLDER };
+    return { ...m, ciphertext: placeholder };
   }
 
   try {
@@ -1163,7 +1189,8 @@ async function decryptStoredMessage(m: MessageDTO): Promise<MessageDTO> {
       ...(m.signedPreKeyId !== undefined && { signedPreKeyId: m.signedPreKeyId }),
     });
     // Cache so subsequent reloads skip the decrypt cost — and so a later
-    // pre-key rotation can't strand history.
+    // pre-key rotation can't strand history. For media messages the
+    // cached "plaintext" is the metadata JSON; MessageView re-parses it.
     await cachePlaintext(m.id, m.chatId, plaintext);
     return { ...m, ciphertext: plaintext };
   } catch (err) {
@@ -1172,7 +1199,7 @@ async function decryptStoredMessage(m: MessageDTO): Promise<MessageDTO> {
     // payload (local key inventory etc.). We only persist the failure
     // marker here so subsequent renders short-circuit.
     void cacheDecryptFailure(m.id, m.chatId, (err as Error)?.message);
-    return { ...m, ciphertext: DECRYPT_FAILED_PLACEHOLDER };
+    return { ...m, ciphertext: placeholder };
   }
 }
 

@@ -6,7 +6,11 @@ import { ChatType, MessageType, type ChatDTO, type InChatSearchMatchDTO, type Li
 import { useChatStore, type TempMessage, type StoredMessage } from '../store/chat.store';
 import { useAuthStore } from '../store/auth.store';
 import { downloadFileAttachment, searchInChat } from '../lib/api-client';
-import { DECRYPT_FAILED_PLACEHOLDER } from '../lib/crypto/crypto.service';
+import {
+  DECRYPT_FAILED_ATTACHMENT_PLACEHOLDER,
+  DECRYPT_FAILED_PLACEHOLDER,
+} from '../lib/crypto/crypto.service';
+import { downloadDecryptedAttachment, useDecryptedBlobUrl } from '../lib/crypto/use-decrypted-blob-url';
 import { wsClient } from '../lib/ws-client';
 import { formatLastSeen } from '../lib/presence';
 import { useSidebar } from '../lib/sidebar-context';
@@ -21,11 +25,38 @@ import { VoiceBubble } from './VoiceBubble';
 const EMPTY_MESSAGES: StoredMessage[] = [];
 const EMPTY_TYPING: string[] = [];
 
-interface FileInfo { url: string; name: string; size: number }
+/**
+ * v0.11.0 — attachment metadata shape on the wire. Mirrors
+ * `MediaMetadataV1` from `lib/crypto/file-crypto.ts` (kept here as a
+ * local type so the renderers don't need to drag the encrypt-side
+ * helpers in). The `k` + `iv` fields, when present, mean the file at
+ * `url` is AES-GCM ciphertext; absent means a legacy v0.10.x plaintext
+ * row (still rendered for backwards compatibility).
+ */
+interface FileInfo {
+  url: string;
+  name: string;
+  size: number;
+  mime?: string;
+  k?: string;
+  iv?: string;
+}
 
 function parseFileInfo(ciphertext: string): FileInfo | null {
   try {
-    const p = JSON.parse(ciphertext) as { url?: unknown; name?: unknown; size?: unknown };
+    const p = JSON.parse(ciphertext) as Record<string, unknown>;
+    // v0.11.0 schema first — has `v:1, filename`.
+    if (p.v === 1 && typeof p.url === 'string' && typeof p.filename === 'string' && typeof p.size === 'number') {
+      return {
+        url: p.url,
+        name: p.filename,
+        size: p.size,
+        ...(typeof p.mime === 'string' && { mime: p.mime }),
+        ...(typeof p.k === 'string' && { k: p.k }),
+        ...(typeof p.iv === 'string' && { iv: p.iv }),
+      };
+    }
+    // Legacy v0.10.x plaintext schema.
     if (typeof p.url === 'string' && typeof p.name === 'string' && typeof p.size === 'number') {
       return { url: p.url, name: p.name, size: p.size };
     }
@@ -33,13 +64,61 @@ function parseFileInfo(ciphertext: string): FileInfo | null {
   return null;
 }
 
-interface VoiceInfo { url: string; duration: number }
+interface VoiceInfo {
+  url: string;
+  duration: number;
+  mime?: string;
+  k?: string;
+  iv?: string;
+}
 
 function parseVoiceInfo(ciphertext: string): VoiceInfo | null {
   try {
-    const p = JSON.parse(ciphertext) as { url?: unknown; duration?: unknown };
+    const p = JSON.parse(ciphertext) as Record<string, unknown>;
+    if (p.v === 1 && typeof p.url === 'string' && typeof p.duration === 'number') {
+      return {
+        url: p.url,
+        duration: p.duration,
+        ...(typeof p.mime === 'string' && { mime: p.mime }),
+        ...(typeof p.k === 'string' && { k: p.k }),
+        ...(typeof p.iv === 'string' && { iv: p.iv }),
+      };
+    }
     if (typeof p.url === 'string' && typeof p.duration === 'number') {
       return { url: p.url, duration: p.duration };
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+/**
+ * v0.11.0 — image attachment parser. The legacy schema was a raw URL
+ * string (no JSON wrapper); the new schema is a v=1 JSON metadata blob
+ * with AES-GCM key material. Returns `null` for the sentinel
+ * `[Unable to decrypt attachment]` placeholder so the caller falls
+ * through to its broken-attachment UI.
+ */
+interface ImageInfo {
+  url: string;
+  mime?: string;
+  k?: string;
+  iv?: string;
+}
+
+function parseImageInfo(ciphertext: string): ImageInfo | null {
+  // Legacy plaintext path — raw URL string.
+  if (ciphertext.startsWith('http://') || ciphertext.startsWith('https://')) {
+    return { url: ciphertext };
+  }
+  try {
+    const p = JSON.parse(ciphertext) as Record<string, unknown>;
+    if (p.v === 1 && typeof p.url === 'string') {
+      return {
+        url: p.url,
+        ...(typeof p.mime === 'string' && { mime: p.mime }),
+        ...(typeof p.k === 'string' && { k: p.k }),
+        ...(typeof p.iv === 'string' && { iv: p.iv }),
+      };
     }
   } catch { /* ignore */ }
   return null;
@@ -475,17 +554,21 @@ function MessageBubble({ m, currentUserId, chatId, isGroup, getSenderName, onRep
                   </div>
                 )}
 
-                {isImage ? (
-                  <>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={text} alt="" className="block w-full max-h-[300px] object-cover" draggable={false} />
-                    <div className={`flex items-center gap-1 px-3 py-1.5 ${isMine ? 'justify-end' : 'justify-start'}`}>
-                      <span className={`text-[11px] ${isMine ? 'text-white/60 dark:text-white/50' : 'text-[#8e8e93] dark:text-[#9a9aa3]'}`}>{time}</span>
-                      {isMine && <StatusIcon state={state} />}
-                    </div>
-                  </>
+                {isImage && text === DECRYPT_FAILED_ATTACHMENT_PLACEHOLDER ? (
+                  <BrokenAttachment kind="image" time={time} isMine={isMine} state={state} />
+                ) : isImage ? (
+                  <ImageBubble
+                    info={parseImageInfo(text)}
+                    time={time}
+                    isMine={isMine}
+                    state={state}
+                  />
+                ) : isFile && text === DECRYPT_FAILED_ATTACHMENT_PLACEHOLDER ? (
+                  <BrokenAttachment kind="file" time={time} isMine={isMine} state={state} />
                 ) : isFile ? (
                   <FileCard fileInfo={parseFileInfo(text)} time={time} isMine={isMine} state={state} messageId={messageId} />
+                ) : isAudio && text === DECRYPT_FAILED_ATTACHMENT_PLACEHOLDER ? (
+                  <BrokenAttachment kind="voice" time={time} isMine={isMine} state={state} />
                 ) : isAudio ? (
                   <VoiceBubbleSection text={text} time={time} isMine={isMine} state={state} />
                 ) : text === DECRYPT_FAILED_PLACEHOLDER ? (
@@ -1341,10 +1424,23 @@ function FileCard({ fileInfo, time, isMine, state, messageId }: FileCardProps) {
   const [downloading, setDownloading] = useState(false);
 
   async function handleDownload() {
-    if (!messageId || !fileInfo || downloading) return;
+    if (!fileInfo || downloading) return;
     setDownloading(true);
     try {
-      await downloadFileAttachment(messageId, fileInfo.name);
+      // v0.11.0 — for encrypted attachments we fetch the ciphertext
+      // straight from MinIO and decrypt in-browser; no need for the
+      // legacy `/files/:messageId/download` API helper because the URL
+      // is already in our metadata and the bytes are useless without
+      // the embedded key. Legacy plaintext rows still go through the
+      // API helper to preserve the authenticated-download UX.
+      if (fileInfo.k && fileInfo.iv) {
+        await downloadDecryptedAttachment(
+          { url: fileInfo.url, k: fileInfo.k, iv: fileInfo.iv, mime: fileInfo.mime },
+          fileInfo.name,
+        );
+      } else if (messageId) {
+        await downloadFileAttachment(messageId, fileInfo.name);
+      }
     } finally {
       setDownloading(false);
     }
@@ -1398,6 +1494,12 @@ interface VoiceBubbleSectionProps {
 
 function VoiceBubbleSection({ text, time, isMine, state }: VoiceBubbleSectionProps) {
   const info = parseVoiceInfo(text);
+  // v0.11.0 — when `k`/`iv` are present we decrypt the ciphertext blob
+  // and feed VoiceBubble a `blob:` URL. Legacy plaintext rows pass the
+  // raw URL straight through.
+  const attachment = info ? { url: info.url, mime: info.mime, k: info.k, iv: info.iv } : null;
+  const decrypted = useDecryptedBlobUrl(attachment);
+
   if (!info) {
     return (
       <div className="px-3.5 py-2.5">
@@ -1409,14 +1511,88 @@ function VoiceBubbleSection({ text, time, isMine, state }: VoiceBubbleSectionPro
       </div>
     );
   }
+  if (decrypted.error) {
+    return <BrokenAttachment kind="voice" time={time} isMine={isMine} state={state} />;
+  }
   return (
     <div>
-      <VoiceBubble url={info.url} durationSec={info.duration} isMine={isMine} />
+      <VoiceBubble
+        url={decrypted.src ?? info.url}
+        durationSec={info.duration}
+        isMine={isMine}
+      />
       <div className={`flex items-center gap-1 px-3.5 pb-2 ${isMine ? 'justify-end' : 'justify-start'}`}>
         <span className={`text-[11px] ${isMine ? 'text-white/60 dark:text-white/50' : 'text-[#8e8e93] dark:text-[#9a9aa3]'}`}>{time}</span>
         {isMine && <StatusIcon state={state} />}
       </div>
     </div>
+  );
+}
+
+/* ─── Image bubble (v0.11.0 — decrypts in browser before rendering) ─── */
+
+interface ImageBubbleProps {
+  info: ImageInfo | null;
+  time: string;
+  isMine: boolean;
+  state: string;
+}
+
+function ImageBubble({ info, time, isMine, state }: ImageBubbleProps) {
+  const attachment = info
+    ? { url: info.url, mime: info.mime, k: info.k, iv: info.iv }
+    : null;
+  const decrypted = useDecryptedBlobUrl(attachment);
+
+  if (!info) return <BrokenAttachment kind="image" time={time} isMine={isMine} state={state} />;
+  if (decrypted.error) return <BrokenAttachment kind="image" time={time} isMine={isMine} state={state} />;
+
+  return (
+    <>
+      {decrypted.src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={decrypted.src}
+          alt=""
+          className="block w-full max-h-[300px] object-cover"
+          draggable={false}
+        />
+      ) : (
+        <div className="block w-full h-[200px] bg-black/[0.04] dark:bg-white/[0.04] animate-pulse" />
+      )}
+      <div className={`flex items-center gap-1 px-3 py-1.5 ${isMine ? 'justify-end' : 'justify-start'}`}>
+        <span className={`text-[11px] ${isMine ? 'text-white/60 dark:text-white/50' : 'text-[#8e8e93] dark:text-[#9a9aa3]'}`}>{time}</span>
+        {isMine && <StatusIcon state={state} />}
+      </div>
+    </>
+  );
+}
+
+/* ─── Broken-attachment tile (decrypt failed) ─────────────────────────── */
+
+interface BrokenAttachmentProps {
+  kind: 'image' | 'file' | 'voice';
+  time: string;
+  isMine: boolean;
+  state: string;
+}
+
+function BrokenAttachment({ kind, time, isMine, state }: BrokenAttachmentProps) {
+  const label =
+    kind === 'image' ? 'Unable to decrypt image'
+    : kind === 'voice' ? 'Unable to decrypt voice message'
+    : 'Unable to decrypt attachment';
+  return (
+    <>
+      <p className={`text-[14px] italic leading-relaxed px-3.5 pt-2.5 flex items-center gap-1.5 ${isMine ? 'text-white/70 dark:text-white/60' : 'text-[#8e8e93] dark:text-[#9a9aa3]'}`}>
+        <LockOpenIcon />
+        {label}
+      </p>
+      <div className={`flex items-center gap-1 px-3.5 pb-2 ${isMine ? 'justify-end' : 'justify-start'}`}>
+        <span className={`text-[11px] ${isMine ? 'text-white/60 dark:text-white/50' : 'text-[#8e8e93] dark:text-[#9a9aa3]'}`}>{time}</span>
+        {isMine && <StatusIcon state={state} />}
+      </div>
+    </>
   );
 }
 

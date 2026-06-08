@@ -77,6 +77,15 @@ const CRYPTO_DEBUG_LOGS = process.env.NODE_ENV !== 'production';
 /** Sentinel ciphertext rendered when decryption can't recover the plaintext. */
 export const DECRYPT_FAILED_PLACEHOLDER = '[Unable to decrypt message]';
 
+/**
+ * v0.11.0 — sentinel for failed media decryption. Replaces the metadata
+ * JSON in `ciphertext` when an IMAGE / FILE / AUDIO message can't be
+ * decrypted. MessageView's attachment renderers check for this exact
+ * string and fall back to a "broken attachment" tile instead of trying
+ * to parse it as JSON.
+ */
+export const DECRYPT_FAILED_ATTACHMENT_PLACEHOLDER = '[Unable to decrypt attachment]';
+
 interface EnvelopeBlob {
   v: 1;
   /** Ciphertext + auth tag (AES-GCM). base64url. */

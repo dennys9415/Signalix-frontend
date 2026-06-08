@@ -1,6 +1,6 @@
 # Signalix Frontend
 
-**Version: v0.10.1**
+**Version: v0.11.0**
 
 Next.js 15 chat client for Signalix. Direct + group chats, text / image / file / **voice note** messages, reactions, replies, forwards, edit, delete-for-me / for-everyone, link previews, typing indicators, presence, avatar upload, draft chat UX, and the full auth stack (local + Google / GitHub / Apple OAuth). Installable as a Progressive Web App with Web Push notifications. **v0.10.0 extends the beta E2EE from direct chats to group text messages** via per-recipient encryption fan-out: the sender runs the v0.9.x X3DH-style handshake once per recipient device and ships N envelopes; each recipient receives only their own copy. Group media, files, and voice notes still flow as plaintext.
 
@@ -279,6 +279,23 @@ Available since v0.6.1. Composer mic button replaces the send button while the t
 - No waveform rendering, no playback speed, no scrubbing (seek-to-position) — only play/pause + progress.
 - Duration is recorder-reported; once `<audio>` metadata loads, the player overrides it with the file's real duration.
 - iOS requires the user to interact before mic capture works (browser policy).
+
+## v0.11.0 changelog — Media / file / voice E2EE beta
+
+### Added
+- **`src/lib/crypto/file-crypto.ts`** — `encryptFile(blob)` / `decryptFile(ciphertext, key, iv)` AES-256-GCM helpers, base64url wire encoders, and the `MediaMetadataV1` interface for the encrypted envelope payload.
+- **`src/lib/crypto/use-decrypted-blob-url.ts`** — React hook that fetches an encrypted blob, decrypts it in memory, and exposes a one-shot `blob:` URL for `<img>` / `<audio>` rendering. Plus `downloadDecryptedAttachment` for file save-as.
+- **`MessageInput`** — image / file / voice paths now `encryptFile → uploadEncryptedBlob → build MediaMetadataV1 JSON` and ship that JSON as the message ciphertext. The store's existing per-recipient envelope pipeline encrypts the JSON unchanged.
+- **`MessageView`** — new `ImageBubble` component (uses `useDecryptedBlobUrl`); updated `VoiceBubbleSection` + `FileCard` to decrypt before render / download; new `BrokenAttachment` tile for the `[Unable to decrypt attachment]` sentinel.
+- **`uploadEncryptedBlob(ciphertext)`** in `lib/api-client.ts` — uploads opaque ciphertext to `/api/v1/media/encrypted-blob`.
+- **`chat.store.dispatchSend`** — `isEncryptable` widened to TEXT | IMAGE | FILE | AUDIO.
+- **`chat.store.decryptStoredMessage`** — no longer short-circuits on non-TEXT; non-TEXT plaintext is the metadata JSON.
+- **`DECRYPT_FAILED_ATTACHMENT_PLACEHOLDER`** exported from `crypto.service`.
+- Tests: `src/lib/crypto/file-crypto.test.ts` — 6 tests on roundtrip, tamper rejection, wire encoding. 16/16 total.
+
+### Not changed
+- Legacy plaintext attachments still render correctly. `parseImageInfo` / `parseFileInfo` / `parseVoiceInfo` detect both the v=1 schema and the v0.10.x shapes; `useDecryptedBlobUrl` returns the raw URL when no key material is present.
+- Text E2EE (direct + group), reactions, replies, edit, delete, presence, push subscriptions — all untouched.
 
 ## v0.10.1 changelog — Multi-device hygiene + realtime group surface
 
