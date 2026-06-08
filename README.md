@@ -1,6 +1,6 @@
 # Signalix Frontend
 
-**Version: v0.11.0**
+**Version: v0.12.0**
 
 Next.js 15 chat client for Signalix. Direct + group chats, text / image / file / **voice note** messages, reactions, replies, forwards, edit, delete-for-me / for-everyone, link previews, typing indicators, presence, avatar upload, draft chat UX, and the full auth stack (local + Google / GitHub / Apple OAuth). Installable as a Progressive Web App with Web Push notifications. **v0.10.0 extends the beta E2EE from direct chats to group text messages** via per-recipient encryption fan-out: the sender runs the v0.9.x X3DH-style handshake once per recipient device and ships N envelopes; each recipient receives only their own copy. Group media, files, and voice notes still flow as plaintext.
 
@@ -279,6 +279,22 @@ Available since v0.6.1. Composer mic button replaces the send button while the t
 - No waveform rendering, no playback speed, no scrubbing (seek-to-position) — only play/pause + progress.
 - Duration is recorder-reported; once `<audio>` metadata loads, the player overrides it with the file's real duration.
 - iOS requires the user to interact before mic capture works (browser policy).
+
+## v0.12.0 changelog — Safety number / device verification UI
+
+### Added
+- **`FingerprintRecord` verification snapshot** in `lib/crypto/db.ts` — `verifiedAt`, `verifiedLocalIdentityKey`, `verifiedPeerIdentityKey`, `verifiedSafetyNumber`. Frozen at the moment the user clicks "Mark as verified" so later identity rotations are detectable by diff.
+- **`deriveVerificationStatus(record, currentLocalKey, currentPeerKey)`** pure helper in `lib/crypto/fingerprints.ts` — returns `'unknown' | 'unverified' | 'verified' | 'changed'`.
+- **`markPeerVerified` / `unmarkPeerVerified`** in `lib/crypto/fingerprints.ts`. `cacheSafetyNumber` upsert preserves the snapshot when the current view is refreshed.
+- **`SignalCryptoService.getPeerVerification` / `markPeerVerified` / `unmarkPeerVerified`** — single-call view consumed by the UI; re-fetches the peer's bundle and validates the Ed25519 signature so the status reflects the latest server-side state.
+- **`EncryptionPanel` inside `ContactProfileModal`** for direct chats: safety number formatted as 2 × 6 × 5-digit rows; 160×160 QR code carrying `signalix-safety:<number>`; status badge (Verified • date / Not verified / No longer verified); button (Mark as verified / Unverify / Re-verify); amber warning panel when status is `'changed'`; loading + retry states.
+- **`qrcode`** dependency (+ `@types/qrcode`).
+- **5 new vitest cases** in `fingerprints.test.ts`. 21/21 frontend tests passing.
+
+### Not changed
+- E2EE wire shapes, fan-out, media path, group flow — all untouched.
+- IDB schema version stays at v2 (the new fields are additive on an existing record).
+- All other components remain at their v0.11.0 behavior.
 
 ## v0.11.0 changelog — Media / file / voice E2EE beta
 

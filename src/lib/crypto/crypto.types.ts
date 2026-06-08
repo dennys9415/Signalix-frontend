@@ -102,9 +102,29 @@ export interface CryptoService {
    * computed safety number for the peer's identity key. The displayable
    * form is "12345-67890-..." (12 groups of 5 decimal digits). Caching
    * is keyed by peerUserId; if either identity key rotates the cached
-   * value is replaced. v0.10.0 will surface this in the UI.
+   * value is replaced.
    */
   getSafetyNumber?(peerUserId: string): Promise<string | null>;
+
+  /**
+   * v0.12.0 verification view — the chat-profile "Encryption" panel
+   * uses this to render safety number + status. `null` when the peer
+   * has no published bundle (or anything else went wrong fetching it).
+   */
+  getPeerVerification?(peerUserId: string): Promise<{
+    status: 'unknown' | 'unverified' | 'verified' | 'changed';
+    safetyNumber: string;
+    localIdentityKey: string;
+    peerIdentityKey: string;
+    verifiedAt: string | undefined;
+    verifiedSafetyNumber: string | undefined;
+  } | null>;
+
+  /** v0.12.0 — user clicked "Mark as verified". */
+  markPeerVerified?(peerUserId: string): Promise<void>;
+
+  /** v0.12.0 — user removed verification. */
+  unmarkPeerVerified?(peerUserId: string): Promise<void>;
 
   /**
    * v0.9.1 reset flag — true when init detected partial/corrupt local

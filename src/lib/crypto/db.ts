@@ -84,20 +84,36 @@ export interface PlaintextCacheRecord {
 }
 
 /**
- * Safety-number foundation. v0.9.1 stores per-peer fingerprints so the
- * device-verification UI in v0.10.0 can render them without rederiving.
+ * Safety-number foundation. v0.9.1 stored per-peer fingerprints; v0.12.0
+ * surfaces them in the chat profile UI and adds verification state. The
+ * record now tracks both the current cached identity pair (for the
+ * up-to-date displayable safety number) and a *snapshot* taken at the
+ * moment the user clicked "Mark as verified" — when the live identity
+ * keys drift from that snapshot, we render the "Security number
+ * changed" warning and auto-unverify.
+ *
  * The displayable form is 12 groups of 5 decimal digits.
  */
 export interface FingerprintRecord {
-  /** Peer user id (the target user, not device — v0.9.1 is single-device). */
+  /** Peer user id (the target user, not device — v0.12.0 is still single-device per user). */
   peerUserId: string;
-  /** Our local identity public key at the time the fingerprint was computed. */
+  /** Our local identity public key at the time the fingerprint was computed (current view). */
   localIdentityKey: string;
-  /** Peer's identity public key at the time the fingerprint was computed. */
+  /** Peer's identity public key at the time the fingerprint was computed (current view). */
   peerIdentityKey: string;
-  /** "12345-67890-..." — 12 groups of 5 decimal digits. */
+  /** "12345-67890-..." — 12 groups of 5 decimal digits derived from the pair above. */
   safetyNumber: string;
   computedAt: string;
+
+  // ── v0.12.0 verification snapshot ───────────────────────────────────
+  /** ISO timestamp of the most recent "Mark as verified" click. Absent = never verified. */
+  verifiedAt?: string;
+  /** Local identity public key when verification was granted. */
+  verifiedLocalIdentityKey?: string;
+  /** Peer identity public key when verification was granted. */
+  verifiedPeerIdentityKey?: string;
+  /** Safety number frozen at verification time — useful for diffing in the UI. */
+  verifiedSafetyNumber?: string;
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null;

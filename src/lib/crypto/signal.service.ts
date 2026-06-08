@@ -41,7 +41,11 @@ import type { CryptoService, DeviceKeyBundleDTO, EncryptedEnvelope } from './cry
 import {
   cacheSafetyNumber,
   computeSafetyNumber,
+  deriveVerificationStatus,
   lookupSafetyNumber,
+  markPeerVerified,
+  unmarkPeerVerified,
+  type VerificationStatus,
 } from './fingerprints';
 import {
   base64UrlToBytes,
@@ -781,21 +785,56 @@ export class SignalCryptoService implements CryptoService {
   }
 
   async getSafetyNumber(peerUserId: string): Promise<string | null> {
-    try {
-      const cached = await lookupSafetyNumber(peerUserId);
-      if (cached) return cached.safetyNumber;
+    const view = await this.getPeerVerification(peerUserId);
+    return view?.safetyNumber ?? null;
+  }
 
-      // No cache — fetch the peer's bundle, validate it, then compute.
+  /**
+   * v0.12.0 — full verification view for the chat-profile UI. Refreshes
+   * the cached safety number against the peer's *current* bundle (so a
+   * key rotation is detected immediately) and derives the verification
+   * status against the snapshot captured at the last "Mark as verified"
+   * click. Returns `null` when the peer has no published bundle.
+   */
+  async getPeerVerification(peerUserId: string): Promise<{
+    status: VerificationStatus;
+    safetyNumber: string;
+    localIdentityKey: string;
+    peerIdentityKey: string;
+    verifiedAt: string | undefined;
+    verifiedSafetyNumber: string | undefined;
+  } | null> {
+    try {
       const bundleResponse = await getKeyBundle(peerUserId);
       const bundle = bundleResponse.bundles[0];
       if (!bundle) return null;
       await assertBundleIsValid(bundle);
       await this.maybeCacheSafetyNumber(peerUserId, bundle.identityKey);
-      const stored = await lookupSafetyNumber(peerUserId);
-      return stored?.safetyNumber ?? null;
+
+      const record = await lookupSafetyNumber(peerUserId);
+      if (!record) return null;
+      const status = deriveVerificationStatus(record, record.localIdentityKey, record.peerIdentityKey);
+      return {
+        status,
+        safetyNumber: record.safetyNumber,
+        localIdentityKey: record.localIdentityKey,
+        peerIdentityKey: record.peerIdentityKey,
+        verifiedAt: record.verifiedAt,
+        verifiedSafetyNumber: record.verifiedSafetyNumber,
+      };
     } catch {
       return null;
     }
+  }
+
+  /** v0.12.0 — user clicked "Mark as verified" in the chat profile. */
+  async markPeerVerified(peerUserId: string): Promise<void> {
+    await markPeerVerified(peerUserId);
+  }
+
+  /** v0.12.0 — user explicitly removed verification. */
+  async unmarkPeerVerified(peerUserId: string): Promise<void> {
+    await unmarkPeerVerified(peerUserId);
   }
 
   private async maybeCacheSafetyNumber(peerUserId: string, peerIdentityKeyB64: string): Promise<void> {
