@@ -42,6 +42,15 @@ export class MockCryptoService implements CryptoService {
     return { ciphertext: plaintext, encryptionVersion: 0 };
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async encryptForUserAllDevices(
+    plaintext: string,
+    _recipientUserId: string,
+  ): Promise<EncryptedEnvelope[]> {
+    // Single plaintext "envelope" — mock has no notion of devices.
+    return [{ ciphertext: plaintext, encryptionVersion: 0 }];
+  }
+
   async decryptIncoming(envelope: { ciphertext: string; encryptionVersion?: number }): Promise<string> {
     // The mock can only "decrypt" plaintext. If a future client emits
     // a non-zero version while the recipient still runs the mock, we

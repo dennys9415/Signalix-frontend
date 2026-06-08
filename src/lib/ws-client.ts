@@ -1,6 +1,7 @@
 import {
   ClientEvent,
   ServerEvent,
+  type ClientChatCreatedPayload,
   type ClientMessageDeleteForEveryonePayload,
   type ClientMessageEditPayload,
   type ClientMessageReactionRemovePayload,
@@ -94,6 +95,10 @@ class WsClient {
 
   sendTypingStop(payload: { chatId: string }): void {
     this.send(ClientEvent.TYPING_STOP, payload);
+  }
+
+  sendChatCreated(payload: ClientChatCreatedPayload): void {
+    this.send(ClientEvent.CHAT_CREATED, payload);
   }
 
   private openSocket(): void {

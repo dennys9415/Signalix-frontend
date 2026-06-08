@@ -896,7 +896,20 @@ export function MessageView({ chat }: Props) {
         <div className="flex-1 min-w-0">
           <p className="text-[15px] font-semibold text-[#1d1d1f] dark:text-[#f5f5f7] truncate">{otherName}</p>
           {isGroup ? (
-            <p className="text-[12px] text-[#8e8e93] dark:text-[#9a9aa3]">{chat.participants.length} members</p>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <p className="text-[12px] text-[#8e8e93] dark:text-[#9a9aa3]">{chat.participants.length} members</p>
+              {/* v0.10.0 — group E2EE beta pill. Text-only; media/files/voice
+                  in this chat continue to flow unencrypted. */}
+              {!isDraft && (
+                <span
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-[#007aff] dark:text-[#0a84ff] bg-[#007aff]/[0.08] dark:bg-[#0a84ff]/[0.10] px-1.5 py-0.5 rounded-full"
+                  title="Group text messages are encrypted end-to-end per-recipient (beta). Media, files, and voice notes are not encrypted."
+                >
+                  <LockIcon />
+                  End-to-end encrypted beta
+                </span>
+              )}
+            </div>
           ) : (
             <div className="flex items-center gap-1.5 flex-wrap">
               <PresenceIndicator online={isOnline} size="sm" />

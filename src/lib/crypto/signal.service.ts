@@ -36,6 +36,7 @@ import {
   type PreKeyRecord,
   type SignedPreKeyRecord,
 } from './db';
+import { clearDecryptFailureCache } from './plaintext-cache';
 import type { CryptoService, DeviceKeyBundleDTO, EncryptedEnvelope } from './crypto.types';
 import {
   cacheSafetyNumber,
@@ -63,6 +64,15 @@ const HKDF_INFO = 'signalix-v1-direct-text';
 const X25519_RAW_BYTES = 32;
 const ED25519_RAW_BYTES = 32;
 const ED25519_SIG_BYTES = 64;
+
+// [signalix-crypto] diagnostic logs are dev-only. We route through this
+// runtime constant rather than a raw `process.env.NODE_ENV !== 'production'`
+// check at each call site so the gate can be temporarily flipped to
+// `true` from a single location when debugging a prod-only issue —
+// without that indirection, Next.js inlines `process.env.NODE_ENV` and
+// DCEs every branch, leaving no way to surface the logs without a code
+// edit at every site.
+const CRYPTO_DEBUG_LOGS = process.env.NODE_ENV !== 'production';
 
 /** Sentinel ciphertext rendered when decryption can't recover the plaintext. */
 export const DECRYPT_FAILED_PLACEHOLDER = '[Unable to decrypt message]';
@@ -109,9 +119,59 @@ export class SignalCryptoService implements CryptoService {
     }
     const deviceId = this.deviceId!;
 
-    const existing = await idbGet<IdentityRecord>(STORE_IDENTITY, 'default');
-    const spkRows = await idbGetAll<SignedPreKeyRecord>(STORE_SIGNED_PRE_KEYS);
-    const preKeyRows = await idbGetAll<PreKeyRecord>(STORE_PRE_KEYS);
+    // Brave / private-mode / Shields diagnostics. We don't refuse to run if
+    // anything looks fishy — the symptoms surface naturally via the regular
+    // error paths — but the dev console gets a clear breadcrumb.
+    if (CRYPTO_DEBUG_LOGS) {
+      const cryptoOk = typeof crypto !== 'undefined' && !!crypto.subtle;
+      const idbOk = typeof indexedDB !== 'undefined';
+      const isBrave = typeof navigator !== 'undefined'
+        && typeof (navigator as { brave?: { isBrave?: () => Promise<boolean> } }).brave?.isBrave === 'function';
+      // eslint-disable-next-line no-console
+      console.info('[signalix-crypto] env probe', {
+        deviceId,
+        cryptoSubtleAvailable: cryptoOk,
+        indexedDbAvailable: idbOk,
+        isBraveDetected: isBrave,
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '(no navigator)',
+      });
+    }
+
+    // v0.10.1 hotfix — force a one-time wipe + re-register per device after
+    // deploy so the server-side reset-wipe path (in registerDeviceKeys)
+    // actually fires. Without this, a device whose IDB was wiped under
+    // v0.9.1 but never re-wiped since the v0.10.0 API fix landed will
+    // keep its orphaned server-side pre-keys, and `getKeyBundle` will
+    // keep handing them out → recipients see "Local one-time pre-key X
+    // not found". Plaintext-cache is preserved so sender history isn't
+    // lost; identity / SPKs / one-time pre-keys / fingerprints reset.
+    const NEEDS_FORCED_CLEANUP_FLAG = 'signalix-stale-prekey-cleanup-v1';
+    const alreadyCleanedUp = typeof localStorage !== 'undefined'
+      && localStorage.getItem(NEEDS_FORCED_CLEANUP_FLAG) === 'done';
+
+    let existing = await idbGet<IdentityRecord>(STORE_IDENTITY, 'default');
+    let spkRows = await idbGetAll<SignedPreKeyRecord>(STORE_SIGNED_PRE_KEYS);
+    let preKeyRows = await idbGetAll<PreKeyRecord>(STORE_PRE_KEYS);
+
+    if (existing && !alreadyCleanedUp) {
+      if (CRYPTO_DEBUG_LOGS) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[signalix-crypto] one-time stale pre-key cleanup — wiping local identity/SPKs/pre-keys and re-registering so the server drops orphaned rows from prior resets',
+          {
+            deviceId,
+            priorIdentityCreatedAt: existing.createdAt,
+            priorSpkCount: spkRows.length,
+            priorPreKeyCount: preKeyRows.length,
+          },
+        );
+      }
+      await this.wipeStaleCryptoState();
+      this.wasReset = true;
+      existing = undefined;
+      spkRows = [];
+      preKeyRows = [];
+    }
 
     const sameDevice = existing && existing.deviceId === deviceId;
     // v0.9.1: detect a torn-down or partially-populated IDB. If we have
@@ -123,7 +183,7 @@ export class SignalCryptoService implements CryptoService {
 
     if (!existing || !sameDevice || partial) {
       if (existing && (!sameDevice || partial)) {
-        if (process.env.NODE_ENV !== 'production') {
+        if (CRYPTO_DEBUG_LOGS) {
           // eslint-disable-next-line no-console
           console.warn(
             '[signalix-crypto] local crypto state reset',
@@ -141,11 +201,38 @@ export class SignalCryptoService implements CryptoService {
       }
     }
 
+    // Mark the cleanup as completed *after* generateAndPublish succeeded.
+    // If publish fails the flag stays unset → next page load retries.
+    if (!alreadyCleanedUp && typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(NEEDS_FORCED_CLEANUP_FLAG, 'done');
+      } catch {
+        // Private mode / quota — best-effort. Worst case is another
+        // cleanup on the next load, which is idempotent.
+      }
+    }
+
+    // Clear any cached decrypt failures from past sessions. Init success
+    // means the local crypto state is consistent now; messages that
+    // failed during an earlier transient condition (init race, the
+    // v0.9.0 envelope-drop bug, a key-reset wipe) deserve one retry per
+    // session. A genuinely broken message will be re-cached this session
+    // and short-circuit subsequent renders until the next page load.
+    try {
+      const cleared = await clearDecryptFailureCache();
+      if (cleared > 0 && CRYPTO_DEBUG_LOGS) {
+        // eslint-disable-next-line no-console
+        console.info(`[signalix-crypto] cleared ${cleared} stale decrypt-failure cache entries`);
+      }
+    } catch {
+      // best-effort
+    }
+
     this.ready = true;
-    if (process.env.NODE_ENV !== 'production') {
+    if (CRYPTO_DEBUG_LOGS) {
       // eslint-disable-next-line no-console
       console.info(
-        '[signalix-crypto] Signal service ready (v0.9.1 hardening — direct-text E2EE)',
+        '[signalix-crypto] Signal service ready (v0.10.0 group beta — direct + group text E2EE)',
         { wasReset: this.wasReset },
       );
     }
@@ -162,6 +249,22 @@ export class SignalCryptoService implements CryptoService {
       idbClearStore(STORE_SIGNED_PRE_KEYS),
       idbClearStore(STORE_PRE_KEYS),
       idbClearStore(STORE_PLAINTEXT_CACHE),
+      idbClearStore(STORE_FINGERPRINTS),
+    ]);
+  }
+
+  /**
+   * v0.10.1 forced-cleanup variant of `wipeLocalState`. Same as the
+   * regular wipe but **keeps the plaintext cache** — the sender's view
+   * of their own past messages survives the cleanup. Used only for the
+   * one-time deploy-triggered cleanup that purges orphan server-side
+   * pre-keys; ordinary reset detection still uses `wipeLocalState`.
+   */
+  private async wipeStaleCryptoState(): Promise<void> {
+    await Promise.all([
+      idbDelete(STORE_IDENTITY, 'default'),
+      idbClearStore(STORE_SIGNED_PRE_KEYS),
+      idbClearStore(STORE_PRE_KEYS),
       idbClearStore(STORE_FINGERPRINTS),
     ]);
   }
@@ -236,6 +339,15 @@ export class SignalCryptoService implements CryptoService {
       })),
     );
 
+    if (CRYPTO_DEBUG_LOGS) {
+      // eslint-disable-next-line no-console
+      console.info('[signalix-crypto] registering device keys', {
+        deviceId,
+        signedPreKeyId: spkKeyId,
+        preKeyIds: preKeysPublic.map((p) => p.keyId),
+        preKeyCount: preKeysPublic.length,
+      });
+    }
     await registerDeviceKeys({
       registrationId,
       identityKey: bytesToBase64Url(identityPubRaw),
@@ -288,10 +400,22 @@ export class SignalCryptoService implements CryptoService {
         algorithm: 'x25519' as const,
       })),
     );
+    if (CRYPTO_DEBUG_LOGS) {
+      // eslint-disable-next-line no-console
+      console.info('[signalix-crypto] uploading pre-keys (top-up)', {
+        deviceId: this.deviceId,
+        addedKeyIds: dto.map((p) => p.keyId),
+        addedCount: dto.length,
+        priorUnconsumed: currentUnconsumed,
+      });
+    }
     try {
       await uploadPreKeys({ preKeys: dto, algorithm: 'x25519' });
-    } catch {
-      // Local copy still useful even if server upload failed; retry on next init.
+    } catch (err) {
+      if (CRYPTO_DEBUG_LOGS) {
+        // eslint-disable-next-line no-console
+        console.warn('[signalix-crypto] pre-key upload failed (local copy retained for retry)', err);
+      }
     }
   }
 
@@ -303,35 +427,95 @@ export class SignalCryptoService implements CryptoService {
       throw new Error('Crypto service not initialized');
     }
     if (!recipient.recipientUserId) {
-      throw new Error('recipientUserId is required for v0.9.x E2EE encryption');
+      throw new Error('recipientUserId is required for E2EE encryption');
     }
 
     const bundleResponse = await getKeyBundle(recipient.recipientUserId);
-    // v0.9.x beta: single-device — pick the first bundle. v0.10.0 will
-    // fan out to every bundle.
     const bundle = bundleResponse.bundles[0] as DeviceKeyBundleDTO | undefined;
     if (!bundle) {
       throw new Error('Recipient has no published key bundle');
     }
+    if (CRYPTO_DEBUG_LOGS) {
+      // eslint-disable-next-line no-console
+      console.info('[signalix-crypto] encryptForRecipient (single-device legacy path)', {
+        recipientUserId: recipient.recipientUserId,
+        totalBundles: bundleResponse.bundles.length,
+        selectedDeviceId: bundle.deviceId,
+        allDeviceIds: bundleResponse.bundles.map((b) => b.deviceId),
+      });
+    }
+    void this.maybeCacheSafetyNumber(recipient.recipientUserId, bundle.identityKey);
+    return this.encryptToBundle(plaintext, bundle);
+  }
 
-    // v0.9.1 hardening: validate every byte we're about to derive from
-    // *before* touching crypto.subtle. A corrupted or attacker-supplied
-    // bundle gets rejected with a clear error rather than producing
-    // unreadable ciphertext.
+  /**
+   * v0.10.0 fix — encrypt the same plaintext separately for every device
+   * the recipient has published a bundle for. Direct messages that
+   * previously picked `bundles[0]` only reached one of the recipient's
+   * devices; logging in on a second browser (Brave + Chrome, mobile +
+   * desktop) used to leave one device permanently undecryptable. This
+   * helper returns N envelopes, one per device. Caller ships them as
+   * `recipients[]` on the WS frame.
+   */
+  async encryptForUserAllDevices(
+    plaintext: string,
+    recipientUserId: string,
+  ): Promise<EncryptedEnvelope[]> {
+    if (!this.ready) {
+      throw new Error('Crypto service not initialized');
+    }
+    const bundleResponse = await getKeyBundle(recipientUserId);
+    if (bundleResponse.bundles.length === 0) {
+      throw new Error('Recipient has no published key bundle');
+    }
+    if (CRYPTO_DEBUG_LOGS) {
+      // eslint-disable-next-line no-console
+      console.info('[signalix-crypto] encryptForUserAllDevices', {
+        recipientUserId,
+        totalBundles: bundleResponse.bundles.length,
+        allDeviceIds: bundleResponse.bundles.map((b) => b.deviceId),
+      });
+    }
+    // Cache safety number against the identity from the first bundle —
+    // identity is per-user and stable across that user's devices in v0.10.0
+    // (each device generates its own identity, but we only display one
+    // fingerprint per peer for now). v0.11.0+ will revisit this.
+    void this.maybeCacheSafetyNumber(recipientUserId, bundleResponse.bundles[0].identityKey);
+
+    const out: EncryptedEnvelope[] = [];
+    for (const bundle of bundleResponse.bundles) {
+      out.push(await this.encryptToBundle(plaintext, bundle));
+    }
+    return out;
+  }
+
+  /**
+   * Encrypt `plaintext` to a single recipient device bundle. Validates
+   * the bundle (signature + sizes) before any ECDH derivation; throws on
+   * malformed input. Shared between the legacy single-device path
+   * (`encryptForRecipient`) and the multi-device fan-out
+   * (`encryptForUserAllDevices`).
+   */
+  private async encryptToBundle(
+    plaintext: string,
+    bundle: DeviceKeyBundleDTO,
+  ): Promise<EncryptedEnvelope> {
     await assertBundleIsValid(bundle);
 
-    // Compute / cache the per-peer safety number using the freshly
-    // validated peer identity. Best-effort: a failure here must not
-    // block sending the message.
-    void this.maybeCacheSafetyNumber(recipient.recipientUserId, bundle.identityKey);
+    if (CRYPTO_DEBUG_LOGS) {
+      // eslint-disable-next-line no-console
+      console.info('[signalix-crypto] preKey selected by sender', {
+        recipientDeviceId: bundle.deviceId,
+        signedPreKeyId: bundle.signedPreKey.keyId,
+        preKeyId: bundle.preKey?.keyId ?? null,
+      });
+    }
 
     const recipSpkPub = await importX25519Public(base64UrlToBytes(bundle.signedPreKey.publicKey));
     const recipPreKeyPub = bundle.preKey
       ? await importX25519Public(base64UrlToBytes(bundle.preKey.publicKey))
       : null;
 
-    // Ephemeral keypair — fresh per message. v0.10.0 will rotate this
-    // via the Double Ratchet rather than discarding it after one use.
     const ephPair = (await crypto.subtle.generateKey(
       { name: 'X25519' } as unknown as AlgorithmIdentifier,
       true,
@@ -387,106 +571,204 @@ export class SignalCryptoService implements CryptoService {
     ciphertext: string;
     encryptionVersion?: number;
     senderDeviceId?: string;
+    recipientDeviceId?: string;
     preKeyId?: number;
     signedPreKeyId?: number;
+    /** Optional — included in the consolidated diagnostic log if provided. */
+    messageId?: string;
   }): Promise<string> {
     if (!envelope.encryptionVersion || envelope.encryptionVersion === 0) {
       return envelope.ciphertext;
     }
-    if (envelope.encryptionVersion !== 1) {
-      throw new Error(`Unsupported encryption version ${envelope.encryptionVersion}`);
-    }
-    if (envelope.signedPreKeyId === undefined) {
-      throw new Error('Missing signedPreKeyId on envelope');
-    }
 
-    // If a fresh login is still publishing keys, MESSAGE_NEW can arrive
-    // before IndexedDB has them. Wait on the in-flight init promise so
-    // the lookups below find what they need. We don't auto-init here —
-    // a caller that never invoked init() should still surface "no keys"
-    // rather than silently bootstrap a stranger's device.
-    if (this.initPromise) {
-      try { await this.initPromise; } catch { /* fall through; lookups will fail loudly */ }
-    }
+    // One diagnostic log line per attempt — success OR failure. Captures
+    // exactly the fields needed to compare a working message against a
+    // failing one side-by-side. Filled in incrementally as we walk
+    // through the decrypt steps; emitted in the finally block.
+    const diag: {
+      messageId?: string;
+      encryptionVersion?: number;
+      senderDeviceId?: string;
+      recipientDeviceId?: string;
+      localDeviceId: string | null;
+      signedPreKeyId?: number;
+      preKeyId?: number;
+      spkLookup: 'hit' | 'miss' | 'skipped';
+      preKeyLookup: 'hit' | 'miss' | 'skipped' | 'none';
+      preKeyAlreadyConsumed?: boolean;
+      localSignedPreKeyIds: number[];
+      localUnconsumedPreKeyIds: number[];
+      localTotalPreKeyCount: number;
+      ciphertextLen: number;
+      result: 'success' | 'failure';
+      reason?: string;
+    } = {
+      messageId: envelope.messageId,
+      encryptionVersion: envelope.encryptionVersion,
+      senderDeviceId: envelope.senderDeviceId,
+      recipientDeviceId: envelope.recipientDeviceId,
+      localDeviceId: this.deviceId,
+      signedPreKeyId: envelope.signedPreKeyId,
+      preKeyId: envelope.preKeyId,
+      spkLookup: 'skipped',
+      preKeyLookup: envelope.preKeyId === undefined ? 'none' : 'skipped',
+      localSignedPreKeyIds: [],
+      localUnconsumedPreKeyIds: [],
+      localTotalPreKeyCount: 0,
+      ciphertextLen: envelope.ciphertext.length,
+      result: 'failure',
+    };
 
-    if (process.env.NODE_ENV !== 'production') {
+    const emit = () => {
+      if (!CRYPTO_DEBUG_LOGS) return;
+      const tag = diag.result === 'success'
+        ? '[signalix-crypto] decrypt success'
+        : '[signalix-crypto] decrypt failed';
+      // eslint-disable-next-line no-console
+      (diag.result === 'success' ? console.info : console.warn)(tag, diag);
+    };
+
+    // Early "I got here" line — fires even if something throws synchronously
+    // below before the consolidated emit. Helps confirm the decrypt path
+    // is reached at all (vs. the cache short-circuit upstream).
+    if (CRYPTO_DEBUG_LOGS) {
       // eslint-disable-next-line no-console
       console.info('[signalix-crypto] decrypt attempt', {
-        version: envelope.encryptionVersion,
+        messageId: envelope.messageId,
+        encryptionVersion: envelope.encryptionVersion,
+        senderDeviceId: envelope.senderDeviceId,
+        recipientDeviceId: envelope.recipientDeviceId,
+        localDeviceId: this.deviceId,
         signedPreKeyId: envelope.signedPreKeyId,
         preKeyId: envelope.preKeyId,
+        ciphertextLen: envelope.ciphertext.length,
       });
     }
 
-    let parsed: EnvelopeBlob;
     try {
-      parsed = JSON.parse(envelope.ciphertext) as EnvelopeBlob;
-    } catch {
-      throw new Error('Malformed E2EE envelope');
-    }
-    if (parsed.v !== 1) throw new Error(`Unsupported envelope version ${parsed.v}`);
-
-    const spk = await idbGet<SignedPreKeyRecord>(STORE_SIGNED_PRE_KEYS, envelope.signedPreKeyId);
-    if (!spk) {
-      throw new Error(`Local signed pre-key ${envelope.signedPreKeyId} not found`);
-    }
-    let preKey: PreKeyRecord | undefined;
-    if (envelope.preKeyId !== undefined) {
-      preKey = await idbGet<PreKeyRecord>(STORE_PRE_KEYS, envelope.preKeyId);
-      if (!preKey) {
-        throw new Error(`Local one-time pre-key ${envelope.preKeyId} not found`);
+      if (envelope.encryptionVersion !== 1) {
+        throw new Error(`Unsupported encryption version ${envelope.encryptionVersion}`);
       }
-    }
+      if (envelope.signedPreKeyId === undefined) {
+        throw new Error('Missing signedPreKeyId on envelope');
+      }
 
-    const ephPub = await importX25519Public(base64UrlToBytes(parsed.eph));
+      // If a fresh login is still publishing keys, MESSAGE_NEW can arrive
+      // before IndexedDB has them. Wait on the in-flight init promise so
+      // the lookups below find what they need.
+      if (this.initPromise) {
+        try { await this.initPromise; } catch { /* fall through; lookups will fail loudly */ }
+      }
 
-    const dh1 = new Uint8Array(
-      await crypto.subtle.deriveBits(
-        { name: 'X25519', public: ephPub } as unknown as AlgorithmIdentifier,
-        spk.pair.privateKey,
-        256,
-      ),
-    );
-    let ikm = dh1;
-    if (preKey) {
-      const dh2 = new Uint8Array(
+      // Snapshot the local key inventory at decrypt time. Captured here
+      // (before the lookups) so the log always reflects the state we
+      // actually queried against, even on the success path.
+      const localSpkRows = await idbGetAll<SignedPreKeyRecord>(STORE_SIGNED_PRE_KEYS);
+      const localPreKeyRows = await idbGetAll<PreKeyRecord>(STORE_PRE_KEYS);
+      diag.localSignedPreKeyIds = localSpkRows.map((s) => s.keyId);
+      diag.localTotalPreKeyCount = localPreKeyRows.length;
+      diag.localUnconsumedPreKeyIds = localPreKeyRows.filter((p) => !p.consumed).map((p) => p.keyId);
+
+      let parsed: EnvelopeBlob;
+      try {
+        parsed = JSON.parse(envelope.ciphertext) as EnvelopeBlob;
+      } catch {
+        throw new Error('Malformed E2EE envelope (JSON.parse failed)');
+      }
+      if (parsed.v !== 1) throw new Error(`Unsupported envelope version ${parsed.v}`);
+
+      const spk = await idbGet<SignedPreKeyRecord>(STORE_SIGNED_PRE_KEYS, envelope.signedPreKeyId);
+      if (!spk) {
+        diag.spkLookup = 'miss';
+        throw new Error(
+          `Local signed pre-key ${envelope.signedPreKeyId} not found (likely targeted a different device of this user)`,
+        );
+      }
+      diag.spkLookup = 'hit';
+
+      let preKey: PreKeyRecord | undefined;
+      if (envelope.preKeyId !== undefined) {
+        preKey = await idbGet<PreKeyRecord>(STORE_PRE_KEYS, envelope.preKeyId);
+        if (!preKey) {
+          diag.preKeyLookup = 'miss';
+          throw new Error(`Local one-time pre-key ${envelope.preKeyId} not found`);
+        }
+        diag.preKeyLookup = 'hit';
+        diag.preKeyAlreadyConsumed = preKey.consumed;
+      }
+
+      const ephPub = await importX25519Public(base64UrlToBytes(parsed.eph));
+
+      const dh1 = new Uint8Array(
         await crypto.subtle.deriveBits(
           { name: 'X25519', public: ephPub } as unknown as AlgorithmIdentifier,
-          preKey.pair.privateKey,
+          spk.pair.privateKey,
           256,
         ),
       );
-      ikm = concatBytes(dh1, dh2);
-    }
-
-    const aesKey = await hkdfAesKey(ikm, HKDF_INFO);
-    const ptBuf = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: base64UrlToBytes(parsed.iv) },
-      aesKey,
-      base64UrlToBytes(parsed.c),
-    );
-    const plaintext = new TextDecoder().decode(ptBuf);
-
-    // v0.9.1: mark the one-time pre-key consumed locally (it was already
-    // marked consumed server-side at bundle hand-out time, but mirroring
-    // here lets the local top-up math stay accurate and prevents future
-    // reuse if the same envelope is replayed). Then trigger top-up if
-    // the unconsumed pool dipped below the watermark.
-    if (preKey && !preKey.consumed) {
-      preKey.consumed = true;
-      try {
-        await idbPut<PreKeyRecord>(STORE_PRE_KEYS, preKey);
-      } catch {
-        // Best-effort — the worst case is we re-mark on next decrypt.
+      let ikm = dh1;
+      if (preKey) {
+        const dh2 = new Uint8Array(
+          await crypto.subtle.deriveBits(
+            { name: 'X25519', public: ephPub } as unknown as AlgorithmIdentifier,
+            preKey.pair.privateKey,
+            256,
+          ),
+        );
+        ikm = concatBytes(dh1, dh2);
       }
-      void this.maybeTopUpAfterConsume();
-    }
 
-    if (process.env.NODE_ENV !== 'production') {
-      // eslint-disable-next-line no-console
-      console.info('[signalix-crypto] decrypt success');
+      const aesKey = await hkdfAesKey(ikm, HKDF_INFO);
+      let ptBuf: ArrayBuffer;
+      try {
+        ptBuf = await crypto.subtle.decrypt(
+          { name: 'AES-GCM', iv: base64UrlToBytes(parsed.iv) },
+          aesKey,
+          base64UrlToBytes(parsed.c),
+        );
+      } catch (cryptoErr) {
+        // Web Crypto throws an opaque OperationError on auth-tag mismatch.
+        // Rewrap with a descriptive reason so the diagnostic log makes the
+        // failure mode unambiguous.
+        throw new Error(
+          `AES-GCM open failed (auth tag mismatch — IKM derived from local SPK${preKey ? '+preKey' : ''} differs from sender's expectation): ${(cryptoErr as Error).message}`,
+        );
+      }
+      const plaintext = new TextDecoder().decode(ptBuf);
+
+      // v0.9.1: mark the one-time pre-key consumed locally — but **only
+      // after AES-GCM decrypt succeeded** (we're past the `crypto.subtle
+      // .decrypt` call). The pre-key row is flagged, never deleted, so
+      // late-arriving messages that reference the same key still
+      // decrypt. v0.10.0 fixes the matching server-side hygiene: the
+      // server never hands out a pre-key the local IDB no longer has,
+      // because re-register wipes the device's old server-side rows.
+      if (preKey && !preKey.consumed) {
+        preKey.consumed = true;
+        try {
+          await idbPut<PreKeyRecord>(STORE_PRE_KEYS, preKey);
+          if (CRYPTO_DEBUG_LOGS) {
+            // eslint-disable-next-line no-console
+            console.info('[signalix-crypto] preKey consumed locally', {
+              preKeyId: preKey.keyId,
+              messageId: envelope.messageId,
+            });
+          }
+        } catch {
+          // Best-effort — the worst case is we re-mark on next decrypt.
+        }
+        void this.maybeTopUpAfterConsume();
+      }
+
+      diag.result = 'success';
+      emit();
+      return plaintext;
+    } catch (err) {
+      diag.result = 'failure';
+      diag.reason = (err as Error)?.message ?? String(err);
+      emit();
+      throw err;
     }
-    return plaintext;
   }
 
   async getSafetyNumber(peerUserId: string): Promise<string | null> {
@@ -606,7 +888,7 @@ async function assertBundleIsValid(bundle: DeviceKeyBundleDTO): Promise<void> {
 
   const sigOk = await verifyEd25519Signature(signingRaw, sigRaw, spkRaw);
   if (!sigOk) {
-    if (process.env.NODE_ENV !== 'production') {
+    if (CRYPTO_DEBUG_LOGS) {
       // eslint-disable-next-line no-console
       console.warn(
         '[signalix-crypto] signed pre-key signature did NOT verify',

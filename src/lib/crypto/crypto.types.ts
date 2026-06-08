@@ -66,6 +66,19 @@ export interface CryptoService {
   ): Promise<EncryptedEnvelope>;
 
   /**
+   * v0.10.0 — multi-device fan-out. Returns one envelope per device the
+   * recipient has published a bundle for. Callers ship them as
+   * `recipients[]` on the WS frame so every device of the recipient can
+   * decrypt the message — fixes the v0.9.x single-device-only limitation
+   * (sender used to encrypt to whichever bundle was first, leaving
+   * Brave/Chrome second-device installs permanently unable to decrypt).
+   */
+  encryptForUserAllDevices(
+    plaintext: string,
+    recipientUserId: string,
+  ): Promise<EncryptedEnvelope[]>;
+
+  /**
    * Returns the plaintext for an incoming envelope. Mock passthroughs
    * `envelope.ciphertext` as-is.
    */
@@ -73,8 +86,15 @@ export interface CryptoService {
     ciphertext: string;
     encryptionVersion?: number;
     senderDeviceId?: string;
+    recipientDeviceId?: string;
     preKeyId?: number;
     signedPreKeyId?: number;
+    /**
+     * v0.10.0 — optional message id passed through to the consolidated
+     * `[signalix-crypto] decrypt success/failed` diagnostic log so the
+     * dev can pair the line with a specific bubble in the UI.
+     */
+    messageId?: string;
   }): Promise<string>;
 
   /**

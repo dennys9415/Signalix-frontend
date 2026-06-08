@@ -8,7 +8,9 @@
 
 import {
   STORE_PLAINTEXT_CACHE,
+  idbDelete,
   idbGet,
+  idbGetAll,
   idbPut,
   type PlaintextCacheRecord,
 } from './db';
@@ -75,5 +77,27 @@ export async function isDecryptFailureCached(messageId: string): Promise<boolean
     return rec?.failed === true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Wipe every cached decrypt failure. Called on each successful
+ * `cryptoService.init()` so that transient failures from past sessions
+ * (e.g., the v0.9.0 envelope-drop bug, a reset-detection wipe, or an
+ * init race) don't permanently poison the placeholder rendering. A
+ * decrypt that still legitimately fails will be re-cached for the
+ * current session and short-circuit subsequent renders until the next
+ * page load — which is the behavior we want.
+ */
+export async function clearDecryptFailureCache(): Promise<number> {
+  try {
+    const all = await idbGetAll<PlaintextCacheRecord>(STORE_PLAINTEXT_CACHE);
+    const failed = all.filter((r) => r.failed === true);
+    for (const rec of failed) {
+      await idbDelete(STORE_PLAINTEXT_CACHE, rec.messageId);
+    }
+    return failed.length;
+  } catch {
+    return 0;
   }
 }

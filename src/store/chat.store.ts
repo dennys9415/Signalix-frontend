@@ -3,9 +3,11 @@
 import { create } from 'zustand';
 import type {
   ChatDTO,
+  GroupRecipientPayloadDTO,
   MessageDTO,
   PresenceEventPayload,
   PublicUserDTO,
+  ServerChatCreatedPayload,
   ServerMessageDeletedForEveryonePayload,
   ServerMessageEditedPayload,
   ServerMessageNewPayload,
@@ -17,6 +19,11 @@ import type {
 import { ChatType, MessageStatus, MessageType, ParticipantRole, PresenceStatus, ServerEvent } from '@signalix/contracts';
 
 export const DRAFT_PREFIX = 'draft:';
+
+// [signalix-crypto] diagnostic logs gated dev-only. See `signal.service.ts`
+// for the rationale on routing through a runtime constant instead of
+// `process.env.NODE_ENV !== 'production'` checks at each call site.
+const CRYPTO_DEBUG_LOGS = process.env.NODE_ENV !== 'production';
 import * as api from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
 import { playNotificationSound, showBrowserNotification } from '../lib/notification';
@@ -193,74 +200,77 @@ export const useChatStore = create<ChatState>((set, get) => ({
           ...(p.signedPreKeyId !== undefined && { signedPreKeyId: p.signedPreKeyId }),
         };
 
-        set((s) => {
-          const existing = s.messages[p.chatId] ?? [];
-          const alreadyHave = existing.some((m) => 'id' in m && m.id === p.messageId);
-          if (alreadyHave) return s;
-          return {
-            messages: { ...s.messages, [p.chatId]: [...existing, rawMsg] },
-            // Only count as unread when the user isn't looking at this chat.
-            unreadCounts: isActiveChat
-              ? s.unreadCounts
-              : { ...s.unreadCounts, [p.chatId]: (s.unreadCounts[p.chatId] ?? 0) + 1 },
-          };
-        });
-
-        // For v0.9.0 E2EE messages, replace ciphertext with plaintext in
-        // the next tick. Fire-and-forget — failure shows the "[Unable to
-        // decrypt message]" sentinel via decryptStoredMessage.
-        if (rawMsg.encryptionVersion && rawMsg.encryptionVersion >= 1) {
-          void (async () => {
-            const decrypted = await decryptStoredMessage(rawMsg);
-            if (decrypted.ciphertext === rawMsg.ciphertext) return; // unchanged
-            set((s) => {
-              const chatMsgs = s.messages[p.chatId];
-              if (!chatMsgs) return s;
-              const idx = chatMsgs.findIndex((m) => 'id' in m && m.id === p.messageId);
-              if (idx === -1) return s;
-              const updated = chatMsgs.map((m, i) => (i === idx ? decrypted : m));
-              return { messages: { ...s.messages, [p.chatId]: updated } };
-            });
-          })();
-        }
-
+        // Delivery receipt + chat-read + new-chat side effects don't depend on
+        // the message body, so fire them immediately (don't wait for decrypt).
         wsClient.sendMessageDelivered({ messageId: p.messageId, chatId: p.chatId });
-
         if (isActiveChat) get().markChatRead(p.chatId);
         if (isNewChat) void get().loadChats();
 
-        // Notify when: not the sender's own message AND (chat is not active OR tab is hidden).
-        const currentUserId = useAuthStore.getState().session?.userId ?? '';
-        const isOwnMessage = p.senderId === currentUserId;
-        const isDocHidden = typeof document !== 'undefined' && document.hidden;
+        // For encrypted TEXT messages, decrypt BEFORE inserting into the
+        // store. Without this, the bubble would render the raw envelope
+        // JSON for ~50ms until the async decrypt finishes and replaces it
+        // with plaintext — a visible flash of base64 garbage. Local decrypt
+        // is sub-millisecond, so the added latency before the bubble
+        // appears is imperceptible.
+        const isEncryptedText =
+          !!rawMsg.encryptionVersion
+          && rawMsg.encryptionVersion >= 1
+          && rawMsg.messageType === MessageType.TEXT;
 
-        if (!isOwnMessage && (!isActiveChat || isDocHidden)) {
-          playNotificationSound();
+        const insertAndNotify = async (): Promise<void> => {
+          const finalMsg = isEncryptedText ? await decryptStoredMessage(rawMsg) : rawMsg;
 
-          const chat = state.chats.find((c) => c.id === p.chatId);
-          const participant = chat?.participants.find((pt) => pt.userId === p.senderId);
-          const senderName =
-            participant?.user?.displayName ??
-            participant?.user?.username ??
-            'New message';
-          const avatarUrl = participant?.user?.avatarUrl ?? undefined;
+          set((s) => {
+            const existing = s.messages[p.chatId] ?? [];
+            const alreadyHave = existing.some((m) => 'id' in m && m.id === p.messageId);
+            if (alreadyHave) return s;
+            return {
+              messages: { ...s.messages, [p.chatId]: [...existing, finalMsg] },
+              // Only count as unread when the user isn't looking at this chat.
+              unreadCounts: isActiveChat
+                ? s.unreadCounts
+                : { ...s.unreadCounts, [p.chatId]: (s.unreadCounts[p.chatId] ?? 0) + 1 },
+            };
+          });
 
-          let preview: string;
-          if (p.messageType === MessageType.IMAGE) {
-            preview = '📷 Photo';
-          } else if (p.messageType === MessageType.AUDIO) {
-            preview = '🎙️ Voice message';
-          } else if (p.messageType === MessageType.FILE) {
-            try {
-              const f = JSON.parse(p.ciphertext) as { name?: string };
-              preview = `📎 ${f.name ?? 'File'}`;
-            } catch { preview = '📎 File'; }
-          } else {
-            preview = p.ciphertext;
+          // Notify when: not the sender's own message AND (chat is not active OR tab is hidden).
+          const currentUserId = useAuthStore.getState().session?.userId ?? '';
+          const isOwnMessage = p.senderId === currentUserId;
+          const isDocHidden = typeof document !== 'undefined' && document.hidden;
+
+          if (!isOwnMessage && (!isActiveChat || isDocHidden)) {
+            playNotificationSound();
+
+            const chat = state.chats.find((c) => c.id === p.chatId);
+            const participant = chat?.participants.find((pt) => pt.userId === p.senderId);
+            const senderName =
+              participant?.user?.displayName ??
+              participant?.user?.username ??
+              'New message';
+            const avatarUrl = participant?.user?.avatarUrl ?? undefined;
+
+            let preview: string;
+            if (p.messageType === MessageType.IMAGE) {
+              preview = '📷 Photo';
+            } else if (p.messageType === MessageType.AUDIO) {
+              preview = '🎙️ Voice message';
+            } else if (p.messageType === MessageType.FILE) {
+              try {
+                const f = JSON.parse(p.ciphertext) as { name?: string };
+                preview = `📎 ${f.name ?? 'File'}`;
+              } catch { preview = '📎 File'; }
+            } else {
+              // Use the decrypted plaintext for E2EE text — the raw envelope
+              // is unreadable garbage as a preview. Falls back to placeholder
+              // when decrypt failed.
+              preview = finalMsg.ciphertext;
+            }
+
+            showBrowserNotification(senderName, preview, { icon: avatarUrl, chatId: p.chatId });
           }
+        };
 
-          showBrowserNotification(senderName, preview, { icon: avatarUrl, chatId: p.chatId });
-        }
+        void insertAndNotify();
       }
 
       if (event === ServerEvent.MESSAGE_DELIVERED || event === ServerEvent.MESSAGE_READ) {
@@ -338,6 +348,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
           if (!current?.includes(p.userId)) return s;
           const next = current.filter((id) => id !== p.userId);
           return { typing: { ...s.typing, [p.chatId]: next } };
+        });
+      }
+
+      if (event === ServerEvent.CHAT_CREATED) {
+        const p = payload as ServerChatCreatedPayload;
+        // Dedupe by chat id: the creator also receives this event and
+        // already inserted the chat from the REST response. New chat
+        // goes to the top of the list (matches createGroupChat's local
+        // insert order). unreadCount on a brand-new chat is 0.
+        set((s) => {
+          if (s.chats.some((c) => c.id === p.chat.id)) return s;
+          return {
+            chats: [p.chat, ...s.chats],
+            unreadCounts: { ...s.unreadCounts, [p.chat.id]: p.chat.unreadCount ?? 0 },
+          };
         });
       }
 
@@ -536,7 +561,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   editMessage(chatId, messageId, ciphertext) {
-    // Optimistic: update content immediately
+    // Optimistic: update content immediately (the user types plaintext, so
+    // that's what we render locally regardless of how it ships over the wire).
     const editedAt = new Date().toISOString();
     set((s) => {
       const chatMsgs = s.messages[chatId];
@@ -552,7 +578,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
         },
       };
     });
-    wsClient.sendMessageEdit({ messageId, chatId, ciphertext });
+
+    void dispatchEdit({
+      chatId,
+      messageId,
+      plaintext: ciphertext,
+      currentUserId: useAuthStore.getState().session?.userId ?? '',
+      state: useChatStore.getState(),
+    });
+
+    // v0.10.0 — cache the new plaintext locally so the sender re-renders
+    // it from cache after a refresh (the messages row stores empty
+    // ciphertext for group encrypted edits).
+    void cachePlaintext(messageId, chatId, ciphertext);
   },
 
   setReaction(chatId, messageId, emoji) {
@@ -704,6 +742,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       chats: [chat, ...s.chats],
       unreadCounts: { ...s.unreadCounts, [chat.id]: 0 },
     }));
+    // v0.10.2 — notify the realtime layer so it can fan
+    // `server.chat.created` out to every online participant. Without
+    // this, recipients have to refresh to see the new group in their
+    // sidebar. Best-effort: the chat exists server-side regardless.
+    try { wsClient.sendChatCreated({ chatId: chat.id }); } catch { /* WS may be reconnecting */ }
     return chat.id;
   },
 
@@ -823,39 +866,108 @@ function resolveDirectRecipient(state: ChatState, args: DispatchSendArgs): strin
   return other?.userId;
 }
 
+/**
+ * v0.10.0 — resolve the recipient userIds for a group encrypted text send.
+ * Returns undefined when the chat isn't a group, when it's a draft (we
+ * don't have a real chatId yet), or when there are no other participants.
+ */
+function resolveGroupRecipientIds(state: ChatState, args: DispatchSendArgs): string[] | undefined {
+  if (!args.chatId || args.chatId.startsWith(DRAFT_PREFIX)) return undefined;
+  const chat = state.chats.find((c) => c.id === args.chatId);
+  if (!chat || chat.type !== ChatType.GROUP) return undefined;
+  const others = chat.participants
+    .map((p) => p.userId)
+    .filter((id) => id !== args.currentUserId);
+  return others.length > 0 ? others : undefined;
+}
+
 async function dispatchSend(args: DispatchSendArgs): Promise<void> {
-  // Default envelope = plaintext + version 0 (current pre-E2EE wire format).
+  // Default envelope = plaintext + version 0 (pre-E2EE wire format).
   let ciphertext = args.plaintext;
   let encryptionVersion: number | undefined;
   let senderDeviceId: string | undefined;
   let recipientDeviceId: string | undefined;
   let preKeyId: number | undefined;
   let signedPreKeyId: number | undefined;
+  let recipients: GroupRecipientPayloadDTO[] | undefined;
 
-  // v0.9.0 scope: encrypt only direct + TEXT messages. Groups, media, files,
-  // and voice notes continue to flow as plaintext until later releases
-  // graduate them to E2EE.
+  // v0.9.0: direct TEXT only. v0.10.0 extends to group TEXT (beta) via
+  // per-recipient fan-out. Media, files, voice still flow as plaintext.
   const isEncryptable = args.messageType === MessageType.TEXT;
 
   if (isEncryptable && cryptoService.isReady()) {
-    const recipientUserId = resolveDirectRecipient(args.state, args);
-    if (recipientUserId) {
-      try {
-        const envelope = await cryptoService.encryptForRecipient(args.plaintext, {
-          ...(args.chatId !== undefined && { chatId: args.chatId }),
-          ...(args.recipientUsername !== undefined && { recipientUsername: args.recipientUsername }),
-          recipientUserId,
-        });
-        ciphertext = envelope.ciphertext;
-        encryptionVersion = envelope.encryptionVersion;
-        senderDeviceId = envelope.senderDeviceId;
-        recipientDeviceId = envelope.recipientDeviceId;
-        preKeyId = envelope.preKeyId;
-        signedPreKeyId = envelope.signedPreKeyId;
-      } catch (err) {
+    const directRecipientId = resolveDirectRecipient(args.state, args);
+    const groupRecipientIds = resolveGroupRecipientIds(args.state, args);
+
+    if (directRecipientId) {
+      // v0.10.0 fix — fan out to every recipient device (Chrome AND Brave,
+      // mobile AND desktop, …) instead of picking bundles[0]. The API now
+      // accepts `recipients[]` for direct chats too, so this is the same
+      // shape as the group path.
+      const fanout = await encryptForUser(directRecipientId);
+      if (fanout) {
+        ciphertext = '';
+        encryptionVersion = 1;
+        senderDeviceId = fanout.senderDeviceId;
+        recipients = fanout.recipients;
+      } else if (CRYPTO_DEBUG_LOGS) {
         // eslint-disable-next-line no-console
-        console.warn('[signalix-crypto] encrypt failed, sending plaintext', err);
+        console.warn(
+          '[signalix-crypto] direct fan-out failed (no devices? bundle invalid?); sending plaintext',
+          { directRecipientId },
+        );
       }
+    } else if (groupRecipientIds) {
+      const fanout = await encryptForGroup(args.plaintext, groupRecipientIds);
+      if (fanout) {
+        ciphertext = '';
+        encryptionVersion = 1;
+        senderDeviceId = fanout.senderDeviceId;
+        recipients = fanout.recipients;
+      } else if (CRYPTO_DEBUG_LOGS) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[signalix-crypto] group fan-out failed for one or more recipients; sending plaintext',
+        );
+      }
+    }
+  }
+
+  async function encryptForUser(
+    recipientUserId: string,
+  ): Promise<{ senderDeviceId?: string; recipients: GroupRecipientPayloadDTO[] } | null> {
+    try {
+      const envelopes = await cryptoService.encryptForUserAllDevices(args.plaintext, recipientUserId);
+      if (envelopes.length === 0) return null;
+      const recipientsOut: GroupRecipientPayloadDTO[] = [];
+      let sdi: string | undefined;
+      for (const env of envelopes) {
+        if (!env.recipientDeviceId || !env.encryptionVersion) return null;
+        if (env.senderDeviceId) sdi = env.senderDeviceId;
+        recipientsOut.push({
+          recipientUserId,
+          recipientDeviceId: env.recipientDeviceId,
+          ciphertext: env.ciphertext,
+          encryptionVersion: env.encryptionVersion,
+          ...(env.preKeyId !== undefined && { preKeyId: env.preKeyId }),
+          ...(env.signedPreKeyId !== undefined && { signedPreKeyId: env.signedPreKeyId }),
+        });
+      }
+      if (CRYPTO_DEBUG_LOGS) {
+        // eslint-disable-next-line no-console
+        console.info('[signalix-crypto] direct fan-out built', {
+          recipientUserId,
+          deviceCount: recipientsOut.length,
+          recipientDeviceIds: recipientsOut.map((r) => r.recipientDeviceId),
+        });
+      }
+      return { senderDeviceId: sdi, recipients: recipientsOut };
+    } catch (err) {
+      if (CRYPTO_DEBUG_LOGS) {
+        // eslint-disable-next-line no-console
+        console.warn('[signalix-crypto] direct fan-out threw', err);
+      }
+      return null;
     }
   }
 
@@ -872,7 +984,134 @@ async function dispatchSend(args: DispatchSendArgs): Promise<void> {
     ...(recipientDeviceId !== undefined && { recipientDeviceId }),
     ...(preKeyId !== undefined && { preKeyId }),
     ...(signedPreKeyId !== undefined && { signedPreKeyId }),
+    ...(recipients && { recipients }),
   });
+}
+
+interface DispatchEditArgs {
+  chatId: string;
+  messageId: string;
+  plaintext: string;
+  currentUserId: string;
+  state: ChatState;
+}
+
+/**
+ * v0.10.0 — edit dispatch. Mirrors `dispatchSend` but routes through
+ * `client.message.edit`. For direct E2EE we re-encrypt the body to the
+ * recipient; for group encrypted we re-run the fan-out and replace the
+ * per-recipient rows server-side.
+ */
+async function dispatchEdit(args: DispatchEditArgs): Promise<void> {
+  let ciphertext = args.plaintext;
+  let encryptionVersion: number | undefined;
+  let senderDeviceId: string | undefined;
+  let recipientDeviceId: string | undefined;
+  let preKeyId: number | undefined;
+  let signedPreKeyId: number | undefined;
+  let recipients: GroupRecipientPayloadDTO[] | undefined;
+
+  if (cryptoService.isReady()) {
+    const sendArgs: DispatchSendArgs = {
+      chatId: args.chatId,
+      wsChatId: args.chatId,
+      plaintext: args.plaintext,
+      messageType: MessageType.TEXT,
+      tempId: args.messageId,
+      currentUserId: args.currentUserId,
+      state: args.state,
+    };
+    const directRecipientId = resolveDirectRecipient(args.state, sendArgs);
+    const groupRecipientIds = resolveGroupRecipientIds(args.state, sendArgs);
+
+    if (directRecipientId) {
+      // v0.10.0 fix — re-fan-out across every recipient device on edit
+      // (matches dispatchSend). Without this, editing a message originally
+      // encrypted with the v0.9.x single-device path would re-encrypt to
+      // bundles[0] only and silently drop the recipient's other devices.
+      const fanout = await encryptForGroup(args.plaintext, [directRecipientId]);
+      if (fanout) {
+        ciphertext = '';
+        encryptionVersion = 1;
+        senderDeviceId = fanout.senderDeviceId;
+        recipients = fanout.recipients;
+      } else if (CRYPTO_DEBUG_LOGS) {
+        // eslint-disable-next-line no-console
+        console.warn('[signalix-crypto] direct edit fan-out failed; sending plaintext');
+      }
+    } else if (groupRecipientIds) {
+      const fanout = await encryptForGroup(args.plaintext, groupRecipientIds);
+      if (fanout) {
+        ciphertext = '';
+        encryptionVersion = 1;
+        senderDeviceId = fanout.senderDeviceId;
+        recipients = fanout.recipients;
+      } else if (CRYPTO_DEBUG_LOGS) {
+        // eslint-disable-next-line no-console
+        console.warn('[signalix-crypto] group edit fan-out failed; sending plaintext');
+      }
+    }
+  }
+
+  wsClient.sendMessageEdit({
+    messageId: args.messageId,
+    chatId: args.chatId,
+    ciphertext,
+    ...(encryptionVersion !== undefined && { encryptionVersion }),
+    ...(senderDeviceId !== undefined && { senderDeviceId }),
+    ...(recipientDeviceId !== undefined && { recipientDeviceId }),
+    ...(preKeyId !== undefined && { preKeyId }),
+    ...(signedPreKeyId !== undefined && { signedPreKeyId }),
+    ...(recipients && { recipients }),
+  });
+}
+
+/**
+ * v0.10.0 — encrypt the same plaintext separately for each recipient in
+ * a group. Returns `null` (and the caller falls back to plaintext) if
+ * **any** recipient fails — partial encryption would leak the body to
+ * the recipients we did succeed for while the rest see nothing.
+ */
+async function encryptForGroup(
+  plaintext: string,
+  recipientUserIds: string[],
+): Promise<{ senderDeviceId?: string; recipients: GroupRecipientPayloadDTO[] } | null> {
+  try {
+    // v0.10.0: each user can have multiple devices (Chrome + Brave + mobile).
+    // We encrypt to *every* device of *every* recipient, so the result count
+    // is sum(devices). If any one user fails (bundle invalid, no devices,
+    // signature mismatch) the whole send falls back to plaintext.
+    const perUser = await Promise.all(
+      recipientUserIds.map(async (uid) => ({
+        uid,
+        envelopes: await cryptoService.encryptForUserAllDevices(plaintext, uid),
+      })),
+    );
+    const recipients: GroupRecipientPayloadDTO[] = [];
+    let senderDeviceId: string | undefined;
+    for (const { uid, envelopes } of perUser) {
+      if (envelopes.length === 0) return null;
+      for (const env of envelopes) {
+        if (!env.recipientDeviceId || !env.encryptionVersion) return null;
+        if (env.senderDeviceId) senderDeviceId = env.senderDeviceId;
+        recipients.push({
+          recipientUserId: uid,
+          recipientDeviceId: env.recipientDeviceId,
+          ciphertext: env.ciphertext,
+          encryptionVersion: env.encryptionVersion,
+          ...(env.preKeyId !== undefined && { preKeyId: env.preKeyId }),
+          ...(env.signedPreKeyId !== undefined && { signedPreKeyId: env.signedPreKeyId }),
+        });
+      }
+    }
+    return { senderDeviceId, recipients };
+  } catch (err) {
+    if (CRYPTO_DEBUG_LOGS) {
+      // eslint-disable-next-line no-console
+      console.warn('[signalix-crypto] group fan-out failed', err);
+    }
+    return null;
+  }
 }
 
 /**
@@ -899,8 +1138,17 @@ async function decryptStoredMessage(m: MessageDTO): Promise<MessageDTO> {
   // v0.9.1: if a prior decrypt for this message already failed, render
   // the placeholder immediately. This stops history-reload from re-running
   // the same broken handshake repeatedly and removes the brief flicker
-  // between empty body and the placeholder text.
+  // between empty body and the placeholder text. v0.10.0: the cache is
+  // cleared on each `cryptoService.init()`, so a transient failure from
+  // a previous session auto-heals on the next page load — only persistent
+  // failures keep showing the placeholder.
   if (await isDecryptFailureCached(m.id)) {
+    if (CRYPTO_DEBUG_LOGS) {
+      // eslint-disable-next-line no-console
+      console.info('[signalix-crypto] decrypt short-circuit (cached failure this session)', {
+        messageId: m.id,
+      });
+    }
     return { ...m, ciphertext: DECRYPT_FAILED_PLACEHOLDER };
   }
 
@@ -908,7 +1156,9 @@ async function decryptStoredMessage(m: MessageDTO): Promise<MessageDTO> {
     const plaintext = await cryptoService.decryptIncoming({
       ciphertext: m.ciphertext,
       encryptionVersion: m.encryptionVersion,
+      messageId: m.id,
       ...(m.senderDeviceId !== undefined && { senderDeviceId: m.senderDeviceId }),
+      ...(m.recipientDeviceId !== undefined && { recipientDeviceId: m.recipientDeviceId }),
       ...(m.preKeyId !== undefined && { preKeyId: m.preKeyId }),
       ...(m.signedPreKeyId !== undefined && { signedPreKeyId: m.signedPreKeyId }),
     });
@@ -917,18 +1167,11 @@ async function decryptStoredMessage(m: MessageDTO): Promise<MessageDTO> {
     await cachePlaintext(m.id, m.chatId, plaintext);
     return { ...m, ciphertext: plaintext };
   } catch (err) {
-    const reason = (err as Error)?.message;
-    if (process.env.NODE_ENV !== 'production') {
-      // eslint-disable-next-line no-console
-      console.warn('[signalix-crypto] decrypt failed', {
-        messageId: m.id,
-        encryptionVersion: m.encryptionVersion,
-        signedPreKeyId: m.signedPreKeyId,
-        preKeyId: m.preKeyId,
-        reason,
-      });
-    }
-    void cacheDecryptFailure(m.id, m.chatId, reason);
+    // The consolidated `[signalix-crypto] decrypt failed` log is emitted
+    // inside signal.service.decryptIncoming with the full diagnostic
+    // payload (local key inventory etc.). We only persist the failure
+    // marker here so subsequent renders short-circuit.
+    void cacheDecryptFailure(m.id, m.chatId, (err as Error)?.message);
     return { ...m, ciphertext: DECRYPT_FAILED_PLACEHOLDER };
   }
 }

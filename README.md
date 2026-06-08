@@ -1,10 +1,10 @@
 # Signalix Frontend
 
-**Version: v0.9.1**
+**Version: v0.10.1**
 
-Next.js 15 chat client for Signalix. Direct + group chats, text / image / file / **voice note** messages, reactions, replies, forwards, edit, delete-for-me / for-everyone, link previews, typing indicators, presence, avatar upload, draft chat UX, and the full auth stack (local + Google / GitHub / Apple OAuth). Installable as a Progressive Web App with Web Push notifications. **v0.9.1 hardens the beta E2EE for direct text messages**: recipient bundles are validated and the Ed25519 signature on their signed pre-key is verified before any ECDH derivation; one-time pre-keys are consumed and auto-topped-up; corrupt local crypto state auto-recovers with a one-time banner; failed decrypts are cached so re-renders don't re-run broken handshakes; and a per-peer safety-number foundation is in place (no UI yet — that's v0.10.0).
+Next.js 15 chat client for Signalix. Direct + group chats, text / image / file / **voice note** messages, reactions, replies, forwards, edit, delete-for-me / for-everyone, link previews, typing indicators, presence, avatar upload, draft chat UX, and the full auth stack (local + Google / GitHub / Apple OAuth). Installable as a Progressive Web App with Web Push notifications. **v0.10.0 extends the beta E2EE from direct chats to group text messages** via per-recipient encryption fan-out: the sender runs the v0.9.x X3DH-style handshake once per recipient device and ships N envelopes; each recipient receives only their own copy. Group media, files, and voice notes still flow as plaintext.
 
-> ⚠️ **Beta E2EE — not production-grade.** Direct text messages are encrypted between v0.9.0+ clients. **Groups, images, files, voice notes remain plaintext** on the server (and the receiver-side preview rendering hasn't changed for them). No Double Ratchet, no multi-device fan-out yet. **v0.10.0** lands those plus the safety-number verification UI; v0.11.0+ extends encryption to groups + media. The chat header shows a 🔒 "End-to-end encrypted beta" pill for direct chats; messages that fail to decrypt render as `[Unable to decrypt message]`; if local crypto state had to be regenerated the user sees an amber **"Encryption keys were reset on this device."** banner once.
+> ⚠️ **Beta E2EE — not production-grade.** Direct **and group** text messages are encrypted between v0.10.0+ clients. **Images, files, and voice notes remain plaintext** on the server (in both direct and group chats). The group fan-out is `O(participants)` — fine for small groups; **Sender Keys land in v0.11.0** to drop that to `O(1)`. No Double Ratchet, no multi-device fan-out yet. The chat header shows a 🔒 "End-to-end encrypted beta" pill for direct **and group** chats; messages that fail to decrypt render as `[Unable to decrypt message]`; if local crypto state had to be regenerated the user sees an amber **"Encryption keys were reset on this device."** banner once.
 
 ## Stack
 
@@ -279,6 +279,49 @@ Available since v0.6.1. Composer mic button replaces the send button while the t
 - No waveform rendering, no playback speed, no scrubbing (seek-to-position) — only play/pause + progress.
 - Duration is recorder-reported; once `<audio>` metadata loads, the player overrides it with the file's real duration.
 - iOS requires the user to interact before mic capture works (browser policy).
+
+## v0.10.1 changelog — Multi-device hygiene + realtime group surface
+
+### Added
+- **Multi-device direct fan-out.** `signal.service.encryptForUserAllDevices(plaintext, recipientUserId)` fetches every bundle the recipient has published and produces N envelopes (one per device). `chat.store.dispatchSend` / `dispatchEdit` direct path now uses `recipients[]` exactly like groups. Fixes Brave + Chrome on the same account.
+- **Forced one-time stale-prekey cleanup.** On first init after deploy, each browser wipes its identity / SPKs / pre-keys / fingerprints (preserves the plaintext cache), re-registers, and sets `localStorage['signalix-stale-prekey-cleanup-v1'] = 'done'`. The server-side identity-change detection then `DELETE`s the device's orphan rows so `getKeyBundle` can no longer hand them out. Idempotent on subsequent loads.
+- **Decrypt-failure cache cleared on each `init()`.** Transient failures from past sessions (init race, v0.9.0 envelope drop) auto-heal on next page load.
+- **MESSAGE_NEW decrypt-before-insert.** Encrypted-text messages decrypt before entering the store — no more envelope-JSON flash before plaintext appears. Browser notifications also use the decrypted body as preview.
+- **`server.chat.created` handler.** `chat.store` dedupes by `chat.id` and prepends to the chats list so new groups appear in the sidebar without refresh.
+- **`wsClient.sendChatCreated({ chatId })`.** Fired by `createGroupChat` after the REST response.
+- **Consolidated decrypt diagnostic.** One log line per `decryptIncoming` attempt with the full local key inventory (`localSignedPreKeyIds`, `localUnconsumedPreKeyIds`, `localTotalPreKeyCount`, `spkLookup`, `preKeyLookup`, `preKeyAlreadyConsumed`, `ciphertextLen`, `reason`). Gated by `CRYPTO_DEBUG_LOGS` (dev-only by default; flippable to surface in production while debugging).
+- **AES-GCM auth-tag failures** rewrap Web Crypto's opaque `OperationError` with a descriptive reason.
+- **`env probe` log** at init: deviceId, `crypto.subtle` availability, `indexedDB` availability, Brave detection.
+
+### Fixed
+- **Intermittent "Unable to decrypt message"** on direct chats, caused by single-device `bundles[0]` + orphan server-side pre-keys from prior IDB wipes.
+- **Multi-device payload mis-routing.** `recipientPayloads` map is now consumed keyed by `deviceId` so a recipient with two browsers receives each browser's envelope distinctly.
+- **MESSAGE_NEW envelope flicker.**
+- **Browser notification preview** showed envelope JSON for E2EE text; now shows plaintext (or the placeholder on decrypt failure).
+
+### Not changed
+- Direct single-device, group, reactions, replies, forwards, edit, delete, push subscriptions, media uploads, voice notes — all unchanged.
+
+## v0.10.0 changelog — Group E2EE beta
+
+### Added
+- **Group text fan-out.** `chat.store.dispatchSend` for group + TEXT + non-draft chats now resolves participant userIds (excluding self), runs `cryptoService.encryptForRecipient` once per recipient in parallel, and ships `recipients[]` on the WS frame with the top-level ciphertext set to a sentinel empty string. The recipient resolver lives in `resolveGroupRecipientIds`; the per-recipient encryption is `encryptForGroup`.
+- **Group edit re-fan-out.** `chat.store.dispatchEdit` (new) symmetrically re-encrypts on edit. Direct E2EE edits also now pass envelope re-routing fields (`encryptionVersion`, `senderDeviceId`, `recipientDeviceId`, `preKeyId`, `signedPreKeyId`) so the recipient's session state stays consistent.
+- **🔒 pill on group chat headers.** `MessageView` shows the same `End-to-end encrypted beta` pill as direct chats for non-draft groups, with a tooltip noting media/files/voice notes are not encrypted.
+- **Plaintext-cache on edit.** `editMessage` now caches the new plaintext under the message id so the sender re-renders the edit from cache after a refresh (group encrypted edits store empty ciphertext on the row).
+
+### Fixed
+- **Empty ciphertext is now accepted** for group encrypted sends + edits. The realtime layer used to reject any send with a blank `ciphertext`; v0.10.0 accepts blank when `recipients[]` is present (the body lives there).
+
+### Not changed
+- Direct E2EE flow — every v0.9.x property carries over. `resolveDirectRecipient` short-circuits before the group resolver.
+- Reactions, replies (modulo the reply-preview limitation below), forwards, delete-for-me, delete-for-everyone, status updates, typing, presence — all unchanged.
+- Image / file / voice note messages remain plaintext (in both direct and group chats).
+
+### Known limitations
+- **Sender refresh requires the local plaintext cache.** A wiped browser loses the sender's view of their own past group messages — identical to direct E2EE in v0.9.x.
+- **New joiners can't decrypt history.** Intentional: they have no per-recipient row for older messages, so those render as `[Unable to decrypt message]`.
+- **Replies that quote a group encrypted message show an empty quote bubble.** The reply preview reads `messages.ciphertext` (the sentinel). v0.11.0 will JOIN the per-recipient ciphertext for the viewer.
 
 ## v0.9.1 changelog — E2EE hardening
 
