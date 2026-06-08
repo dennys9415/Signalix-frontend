@@ -7,12 +7,14 @@ import { ChatType, type ChatDTO, type MessageSearchResultDTO, type PublicUserDTO
 import { useChatStore, DRAFT_PREFIX } from '../store/chat.store';
 import { useAuthStore } from '../store/auth.store';
 import { getMe, searchUsers, searchMessages } from '../lib/api-client';
+import { mergeSearchResults, searchLocalMessages } from '../lib/local-search';
 import { useSidebar } from '../lib/sidebar-context';
 import { formatChatTime } from '../lib/avatar';
 import { ChatItem } from './ChatItem';
 import { Avatar } from './Avatar';
 import { PresenceIndicator } from './PresenceIndicator';
 import { GroupCreateModal } from './GroupCreateModal';
+import { MobileSearchOverlay } from './MobileSearchOverlay';
 
 export function ChatSidebar() {
   const router = useRouter();
@@ -42,6 +44,7 @@ export function ChatSidebar() {
   // (user typed something newer mid-flight) are discarded by comparing.
   const activeQueryRef = useRef<string>('');
   const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
   const currentUserId = session?.userId ?? '';
 
@@ -61,9 +64,12 @@ export function ChatSidebar() {
     setMessageNextCursor(undefined);
     setMessageHasMore(false);
     startSearch(async () => {
-      // Fan out user + message search in parallel. Message search requires
-      // ≥2 chars (API DTO enforces); for shorter queries we skip it so the
-      // people-search UX still works on a single character.
+      // Fan out user + server-side message search in parallel. Message
+      // search requires ≥2 chars (API DTO enforces); for shorter queries
+      // we skip it so the people-search UX still works on a single
+      // character. v0.13.0 — also walk the local in-memory message
+      // store so encrypted bodies (which the server's ILIKE on
+      // `messages.ciphertext` can't see) still match.
       const emptyPage = { results: [] as MessageSearchResultDTO[], pagination: { hasMore: false, nextCursor: undefined as string | undefined } };
       const [users, msgPage] = await Promise.all([
         searchUsers(q).then((r) => r.users).catch(() => [] as PublicUserDTO[]),
@@ -73,8 +79,21 @@ export function ChatSidebar() {
       ]);
       // Discard if the user kept typing while we were waiting.
       if (activeQueryRef.current !== q) return;
+
+      const localHits = q.length >= 2
+        ? searchLocalMessages(q, {
+            chats,
+            messagesByChat: messages,
+            currentUserId: session?.userId ?? '',
+          }, { limit: 40 })
+        : [];
+      const merged = mergeSearchResults(msgPage.results, localHits);
+
       setResults(users);
-      setMessageResults(msgPage.results);
+      setMessageResults(merged);
+      // Pagination only governs the server-side cursor — local hits are
+      // emitted in full on the first page (they live in memory). The
+      // "load more" button keeps fetching server pages and merging.
       setMessageHasMore(msgPage.pagination.hasMore);
       setMessageNextCursor(msgPage.pagination.nextCursor ?? undefined);
       setSearched(true);
@@ -103,7 +122,10 @@ export function ChatSidebar() {
       const page = await searchMessages(q, { limit: 12, cursor: messageNextCursor });
       // Drop the page if the user moved on to a different query mid-flight.
       if (activeQueryRef.current !== q) return;
-      setMessageResults((prev) => [...prev, ...page.results]);
+      // v0.13.0 — server pages can overlap with hits we already merged
+      // from the local store; dedupe via mergeSearchResults rather than
+      // a naive concat.
+      setMessageResults((prev) => mergeSearchResults(page.results, prev));
       setMessageHasMore(page.pagination.hasMore);
       setMessageNextCursor(page.pagination.nextCursor);
     } catch {
@@ -219,6 +241,17 @@ export function ChatSidebar() {
             onChange={handleSearchChange}
             placeholder="Search"
             className="w-full rounded-full bg-white/45 dark:bg-white/[0.06] backdrop-blur-xl border border-white/60 dark:border-white/[0.06] pl-9 pr-9 py-2 text-[14px] text-[#1d1d1f] dark:text-[#f5f5f7] placeholder-[#8e8e93] dark:placeholder-[#9a9aa3] focus:outline-none focus:bg-white/70 dark:focus:bg-white/[0.08] focus:border-white/80 dark:focus:border-white/[0.10] transition-all duration-200"
+          />
+          {/* v0.13.0 — on mobile, intercept input focus and open the
+              full-screen search overlay instead of typing inline. The
+              button is a transparent overlay that covers the input on
+              small screens only; desktop sees nothing and the input
+              works as before. */}
+          <button
+            type="button"
+            onClick={() => setMobileSearchOpen(true)}
+            aria-label="Open search"
+            className="md:hidden absolute inset-0 rounded-full"
           />
           {query && (
             <button
@@ -384,6 +417,8 @@ export function ChatSidebar() {
           onClose={() => setGroupModalOpen(false)}
         />
       )}
+
+      <MobileSearchOverlay open={mobileSearchOpen} onClose={() => setMobileSearchOpen(false)} />
     </aside>
   );
 }

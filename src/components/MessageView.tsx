@@ -6,6 +6,7 @@ import { ChatType, MessageType, type ChatDTO, type InChatSearchMatchDTO, type Li
 import { useChatStore, type TempMessage, type StoredMessage } from '../store/chat.store';
 import { useAuthStore } from '../store/auth.store';
 import { downloadFileAttachment, searchInChat } from '../lib/api-client';
+import { mergeInChatResults, searchLocalChatMessages } from '../lib/local-search';
 import {
   DECRYPT_FAILED_ATTACHMENT_PLACEHOLDER,
   DECRYPT_FAILED_PLACEHOLDER,
@@ -853,9 +854,25 @@ export function MessageView({ chat }: Props) {
     const seq = ++searchSeqRef.current;
     const handle = window.setTimeout(async () => {
       try {
-        const res = await searchInChat(chat.id, q, { limit: 100 });
+        // v0.13.0 — query the server AND the in-memory store; the
+        // server can only see legacy plaintext / metadata fields, the
+        // local pass covers decrypted bodies of v0.10.0+ E2EE messages.
+        const [serverRes, localHits] = await Promise.all([
+          searchInChat(chat.id, q, { limit: 100 }).catch(() => ({
+            chatId: chat.id,
+            matches: [] as InChatSearchMatchDTO[],
+            pagination: { hasMore: false, nextCursor: undefined as string | undefined },
+          })),
+          Promise.resolve(
+            searchLocalChatMessages(q, chat.id, {
+              chats,
+              messagesByChat: { [chat.id]: messages as unknown as Parameters<typeof searchLocalChatMessages>[2]['messagesByChat'][string] },
+              currentUserId,
+            }, { limit: 200 }),
+          ),
+        ]);
         if (searchSeqRef.current !== seq) return; // stale
-        setSearchMatches(res.matches);
+        setSearchMatches(mergeInChatResults(serverRes.matches, localHits));
         setActiveMatchIdx(0);
       } catch {
         if (searchSeqRef.current === seq) setSearchMatches([]);
@@ -864,7 +881,7 @@ export function MessageView({ chat }: Props) {
       }
     }, 220);
     return () => window.clearTimeout(handle);
-  }, [searchQuery, searchMode, chat.id, isDraft]);
+  }, [searchQuery, searchMode, chat.id, isDraft, chats, messages, currentUserId]);
 
   function gotoNextMatch() {
     if (searchMatches.length === 0) return;

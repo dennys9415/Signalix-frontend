@@ -1,6 +1,6 @@
 # Signalix Frontend
 
-**Version: v0.12.0**
+**Version: v0.13.0**
 
 Next.js 15 chat client for Signalix. Direct + group chats, text / image / file / **voice note** messages, reactions, replies, forwards, edit, delete-for-me / for-everyone, link previews, typing indicators, presence, avatar upload, draft chat UX, and the full auth stack (local + Google / GitHub / Apple OAuth). Installable as a Progressive Web App with Web Push notifications. **v0.10.0 extends the beta E2EE from direct chats to group text messages** via per-recipient encryption fan-out: the sender runs the v0.9.x X3DH-style handshake once per recipient device and ships N envelopes; each recipient receives only their own copy. Group media, files, and voice notes still flow as plaintext.
 
@@ -279,6 +279,25 @@ Available since v0.6.1. Composer mic button replaces the send button while the t
 - No waveform rendering, no playback speed, no scrubbing (seek-to-position) — only play/pause + progress.
 - Duration is recorder-reported; once `<audio>` metadata loads, the player overrides it with the file's real duration.
 - iOS requires the user to interact before mic capture works (browser policy).
+
+## v0.13.0 changelog — Message search (E2EE-aware)
+
+### Added
+- **`src/lib/local-search.ts`** *(new)* — `searchLocalMessages(query, inputs, opts?)` walks the in-memory `chat.store.state.messages` + `state.chats`. TEXT messages match against the decrypted body the store carries after `decryptStoredMessage`; IMAGE / FILE / AUDIO parse `MediaMetadataV1` and match `filename`. Skips the `[Unable to decrypt …]` sentinels. Emits `MessageSearchResultDTO[]`.
+- **`searchLocalChatMessages`** — single-chat variant returning `InChatSearchMatchDTO[]` for the in-chat search bar.
+- **`mergeSearchResults` / `mergeInChatResults`** — dedup by `messageId` with local-hit priority (the local entry has the real plaintext; the server only has the empty sentinel for encrypted rows).
+- **`ChatSidebar`** — `handleSearchChange` + `loadMoreMessageResults` fan out server + local search and merge.
+- **`MessageView`** in-chat search effect — same merge inside the existing X-of-Y + scroll-to + highlight pipeline (already shipped in v0.7.1).
+- **`MobileSearchOverlay.tsx`** *(new)* — full-screen modal triggered by tapping the sidebar search input on mobile. Own input + People + Messages sections + tap-to-route to `/chats/:id?m=:messageId`.
+- 8 new vitest cases in `lib/local-search.test.ts`. **29/29 tests passing.**
+
+### Fixed
+- v0.7.1's search returned zero matches for v0.10.0+ encrypted message bodies (`messages.ciphertext = ''` after the per-recipient fan-out). The client-side walk closes the blind spot for any message already loaded into the store.
+
+### Not changed
+- No new contracts; same `MessageSearchResultDTO` / `InChatSearchMatchDTO` shapes from v0.7.1.
+- Click → scroll → highlight pipeline is from v0.7.1 and works without changes.
+- Realtime, E2EE pipeline, fan-out, media path — all untouched.
 
 ## v0.12.0 changelog — Safety number / device verification UI
 
