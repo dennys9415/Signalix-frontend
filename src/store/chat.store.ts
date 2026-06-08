@@ -138,8 +138,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
                   // Cache sender plaintext so a later history reload can
                   // display the message we just sent (we encrypted it for
                   // the recipient's keys, not our own, so we can't decrypt
-                  // it from the server's row).
-                  if (tmp.messageType === MessageType.TEXT) {
+                  // it from the server's row). v0.11.0 — covers media
+                  // too: `tmp.ciphertext` for IMAGE / FILE / AUDIO is the
+                  // attachment metadata JSON, which decryptStoredMessage
+                  // returns on the recipient side after envelope decrypt,
+                  // so caching it here gives the sender the same payload
+                  // to render after a reload.
+                  if (
+                    tmp.messageType === MessageType.TEXT
+                    || tmp.messageType === MessageType.IMAGE
+                    || tmp.messageType === MessageType.FILE
+                    || tmp.messageType === MessageType.AUDIO
+                  ) {
                     void cachePlaintext(p.messageId, p.chatId, tmp.ciphertext);
                   }
                   const confirmed: MessageDTO = {
@@ -210,19 +220,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (isActiveChat) get().markChatRead(p.chatId);
         if (isNewChat) void get().loadChats();
 
-        // For encrypted TEXT messages, decrypt BEFORE inserting into the
+        // For encrypted messages, decrypt BEFORE inserting into the
         // store. Without this, the bubble would render the raw envelope
         // JSON for ~50ms until the async decrypt finishes and replaces it
         // with plaintext — a visible flash of base64 garbage. Local decrypt
         // is sub-millisecond, so the added latency before the bubble
-        // appears is imperceptible.
-        const isEncryptedText =
+        // appears is imperceptible. v0.11.0 — extended to IMAGE / FILE /
+        // AUDIO so attachments don't render BrokenAttachment briefly
+        // (parseImageInfo / parseFileInfo / parseVoiceInfo can't make
+        // sense of the X3DH envelope JSON; they need the decrypted
+        // metadata).
+        const isEncryptedAny =
           !!rawMsg.encryptionVersion
           && rawMsg.encryptionVersion >= 1
-          && rawMsg.messageType === MessageType.TEXT;
+          && (
+            rawMsg.messageType === MessageType.TEXT
+            || rawMsg.messageType === MessageType.IMAGE
+            || rawMsg.messageType === MessageType.FILE
+            || rawMsg.messageType === MessageType.AUDIO
+          );
 
         const insertAndNotify = async (): Promise<void> => {
-          const finalMsg = isEncryptedText ? await decryptStoredMessage(rawMsg) : rawMsg;
+          const finalMsg = isEncryptedAny ? await decryptStoredMessage(rawMsg) : rawMsg;
 
           set((s) => {
             const existing = s.messages[p.chatId] ?? [];
