@@ -151,13 +151,32 @@ export function getChats(): Promise<{ chats: ChatDTO[] }> {
 
 export function getMessages(
   chatId: string,
-  params?: { limit?: number; cursor?: string },
+  params?: { limit?: number; cursor?: string; since?: string },
 ): Promise<GetMessagesResponse> {
   const qs = new URLSearchParams();
   if (params?.limit) qs.set('limit', String(params.limit));
   if (params?.cursor) qs.set('cursor', params.cursor);
+  // v0.14.0 — when present, the response also carries `statusUpdates`
+  // for receipts that fired after this timestamp. Drives the reconnect
+  // sync flow.
+  if (params?.since) qs.set('since', params.since);
   const suffix = qs.size ? `?${qs.toString()}` : '';
   return authed<GetMessagesResponse>('GET', `/api/v1/chats/${chatId}/messages${suffix}`);
+}
+
+/**
+ * v0.14.0 — per-recipient status breakdown for a message. Used by the
+ * Message Info dialog. Returns one row per chat participant (excluding
+ * the sender), backfilled with implicit SENT for participants who
+ * haven't delivered yet.
+ */
+export function getMessageRecipientsStatus(
+  messageId: string,
+): Promise<import('@signalix/contracts').GetMessageRecipientsStatusResponse> {
+  return authed<import('@signalix/contracts').GetMessageRecipientsStatusResponse>(
+    'GET',
+    `/api/v1/messages/${encodeURIComponent(messageId)}/recipients/status`,
+  );
 }
 
 export function lookupUser(username: string): Promise<ExactUsernameLookupResponse> {

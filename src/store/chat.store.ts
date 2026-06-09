@@ -49,6 +49,16 @@ export interface TempMessage {
   pending: true;
   replyTo?: import('@signalix/contracts').ReplyPreviewDTO;
   isForwarded?: boolean;
+  /**
+   * v0.14.0 — `true` when the WS frame couldn't be transmitted (socket
+   * closed) and the temp is sitting in the outbox waiting for reconnect.
+   * On `server.authenticated` the store iterates every queued temp and
+   * re-emits via `wsClient.sendMessageSend`. UI surfaces the queued
+   * state via the StatusIcon (clock with a wifi-off badge).
+   */
+  queued?: boolean;
+  /** v0.14.0 — count of reconnect re-emits; mostly diagnostic. */
+  outboxAttempts?: number;
 }
 
 export type StoredMessage = MessageDTO | TempMessage;
@@ -70,6 +80,10 @@ interface ChatState {
   initWsHandler: () => void;
   loadChats: () => Promise<void>;
   loadMessages: (chatId: string) => Promise<void>;
+  /** v0.14.0 — re-emit every TempMessage flagged `queued: true`. */
+  drainOutbox: () => Promise<void>;
+  /** v0.14.0 — for each loaded chat, fetch messages + status updates since the last event we recorded. */
+  syncSinceLastEvent: () => Promise<void>;
   sendMessage: (payload: { chatId?: string; recipientUsername?: string; ciphertext: string; replyToMessageId?: string; isForwarded?: boolean; messageType?: MessageType }) => void;
   markRead: (chatId: string, messageId: string) => void;
   deleteChatForMe: (chatId: string) => Promise<void>;
@@ -247,10 +261,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
             const existing = s.messages[p.chatId] ?? [];
             const alreadyHave = existing.some((m) => 'id' in m && m.id === p.messageId);
             if (alreadyHave) return s;
+            // v0.14.0 fix — race-safe unread increment. If the chat
+            // isn't in the sidebar list yet, `isNewChat` triggered
+            // `loadChats()` which fetches the authoritative unread
+            // count from the server. If we ALSO increment here, the
+            // counts collide (server's 1 + our +1 = 2). Skip the
+            // increment when the chat isn't tracked; loadChats will
+            // populate the badge correctly.
+            const chatTracked = s.chats.some((c) => c.id === p.chatId);
             return {
               messages: { ...s.messages, [p.chatId]: [...existing, finalMsg] },
-              // Only count as unread when the user isn't looking at this chat.
-              unreadCounts: isActiveChat
+              unreadCounts: isActiveChat || !chatTracked
                 ? s.unreadCounts
                 : { ...s.unreadCounts, [p.chatId]: (s.unreadCounts[p.chatId] ?? 0) + 1 },
             };
@@ -401,7 +422,153 @@ export const useChatStore = create<ChatState>((set, get) => ({
           lastSeenAt: { ...s.lastSeenAt, [p.userId]: p.timestamp },
         }));
       }
+
+      if (event === ServerEvent.AUTHENTICATED) {
+        // v0.14.0 — fires both on the initial connect AND on every
+        // reconnect. Used to (a) drain the outbox by re-emitting any
+        // TempMessage whose WS send failed earlier, and (b) sync the
+        // currently-loaded chats since their `lastEventAt` so missed
+        // delivery/read receipts come back in.
+        void get().drainOutbox();
+        void get().syncSinceLastEvent();
+      }
     });
+  },
+
+  /**
+   * v0.14.0 — re-emit every TempMessage flagged `queued: true`. Fired
+   * by the `server.authenticated` handler on initial connect AND on
+   * each reconnect. Idempotent: a temp that the server has already
+   * ACK'd will have been promoted to a real MessageDTO and won't
+   * appear here.
+   */
+  async drainOutbox() {
+    const state = get();
+    const sessionUserId = useAuthStore.getState().session?.userId ?? '';
+    if (!sessionUserId) return;
+
+    let drained = 0;
+    const setState = useChatStore.setState;
+
+    for (const [chatId, msgs] of Object.entries(state.messages)) {
+      for (const m of msgs) {
+        if (!('tempId' in m)) continue;
+        const tmp = m as TempMessage;
+        if (!tmp.queued) continue;
+
+        // Clear the `queued` flag optimistically; if the send fails
+        // again `dispatchSend` will set it back.
+        setState((s) => {
+          const arr = s.messages[chatId];
+          if (!arr) return s;
+          return {
+            messages: {
+              ...s.messages,
+              [chatId]: arr.map((x) => {
+                if (!('tempId' in x) || x.tempId !== tmp.tempId) return x;
+                return {
+                  ...(x as TempMessage),
+                  queued: false,
+                  outboxAttempts: ((x as TempMessage).outboxAttempts ?? 0) + 1,
+                } as TempMessage;
+              }),
+            },
+          };
+        });
+
+        // Reuse dispatchSend to keep the encryption / fan-out path
+        // identical to the original attempt.
+        void dispatchSend({
+          tempId: tmp.tempId,
+          wsChatId: chatId.startsWith(DRAFT_PREFIX) ? undefined : chatId,
+          chatId,
+          plaintext: tmp.ciphertext,
+          messageType: (tmp.messageType ?? MessageType.TEXT) as import('@signalix/contracts').SendableMessageType,
+          ...(tmp.replyTo && { replyToMessageId: tmp.replyTo.messageId }),
+          ...(tmp.isForwarded && { isForwarded: true }),
+          state: useChatStore.getState(),
+          currentUserId: sessionUserId,
+        });
+        drained += 1;
+      }
+    }
+
+    if (drained > 0 && process.env.NODE_ENV !== 'production') {
+      // eslint-disable-next-line no-console
+      console.info(`[signalix-ws] outbox drained ${drained} queued message(s)`);
+    }
+  },
+
+  /**
+   * v0.14.0 — for every chat with messages in memory, fetch
+   * `GET /chats/:id/messages?since=<lastEventAt>`. The response carries
+   * any messages newer than the cursor PLUS the per-recipient status
+   * updates that fired after it — covering reconnect-after-offline
+   * scenarios where the WS would have dropped those events. Compute
+   * `lastEventAt` as the max timestamp across the chat's loaded
+   * messages (`createdAt`); status timestamps are advanced implicitly
+   * when their owning message is in scope.
+   */
+  async syncSinceLastEvent() {
+    const state = get();
+    for (const [chatId, msgs] of Object.entries(state.messages)) {
+      if (chatId.startsWith(DRAFT_PREFIX)) continue;
+      const realMsgs = msgs.filter((m): m is MessageDTO => 'id' in m);
+      if (realMsgs.length === 0) continue;
+      const since = realMsgs.reduce(
+        (max, m) => (m.createdAt > max ? m.createdAt : max),
+        realMsgs[0].createdAt,
+      );
+      try {
+        const res = await api.getMessages(chatId, { since, limit: 50 });
+        // Inject any newly-arrived messages we missed.
+        if (res.messages.length > 0) {
+          const decrypted = await decryptStoredMessages(res.messages);
+          set((s) => {
+            const existing = s.messages[chatId] ?? [];
+            const seen = new Set(existing.filter((m): m is MessageDTO => 'id' in m).map((m) => m.id));
+            const added = decrypted.filter((m) => !seen.has(m.id));
+            if (added.length === 0) return s;
+            // API returns newest-first; preserve oldest-first order in store.
+            return {
+              messages: { ...s.messages, [chatId]: [...existing, ...added.reverse()] },
+            };
+          });
+        }
+        // Replay missed status updates so the StatusIcon advances.
+        if (res.statusUpdates && res.statusUpdates.length > 0) {
+          set((s) => {
+            const arr = s.messages[chatId];
+            if (!arr) return s;
+            // We only track an aggregate state per message in v0.14.0; pick
+            // the highest-ranked status seen for each messageId.
+            const rank = (st: string) => (st === 'read' ? 3 : st === 'delivered' ? 2 : st === 'sent' ? 1 : 0);
+            const maxByMsg = new Map<string, { status: string }>();
+            for (const u of res.statusUpdates!) {
+              const cur = maxByMsg.get(u.messageId);
+              if (!cur || rank(u.status) > rank(cur.status)) {
+                maxByMsg.set(u.messageId, { status: u.status });
+              }
+            }
+            return {
+              messages: {
+                ...s.messages,
+                [chatId]: arr.map((m) => {
+                  if (!('id' in m)) return m;
+                  const update = maxByMsg.get(m.id);
+                  if (!update) return m;
+                  const newState = update.status === 'read' ? 'read' : update.status === 'delivered' ? 'delivered' : (m as MessageDTO).state;
+                  if ((m as MessageDTO).state === newState) return m;
+                  return { ...(m as MessageDTO), state: newState } as MessageDTO;
+                }),
+              },
+            };
+          });
+        }
+      } catch {
+        // best-effort
+      }
+    }
   },
 
   async loadChats() {
@@ -1002,7 +1169,7 @@ async function dispatchSend(args: DispatchSendArgs): Promise<void> {
     }
   }
 
-  wsClient.sendMessageSend({
+  const sent = wsClient.sendMessageSend({
     ...(args.wsChatId !== undefined && { chatId: args.wsChatId }),
     ...(args.recipientUsername !== undefined && { recipientUsername: args.recipientUsername }),
     ciphertext,
@@ -1017,6 +1184,26 @@ async function dispatchSend(args: DispatchSendArgs): Promise<void> {
     ...(signedPreKeyId !== undefined && { signedPreKeyId }),
     ...(recipients && { recipients }),
   });
+
+  // v0.14.0 — if the socket was closed at send time, mark the temp
+  // message as queued. `drainOutbox` (fires on the next
+  // `server.authenticated` event) walks every queued temp and
+  // re-emits it.
+  if (!sent && args.wsChatId) {
+    useChatStore.setState((s) => {
+      const chatMsgs = s.messages[args.wsChatId!];
+      if (!chatMsgs) return s;
+      return {
+        messages: {
+          ...s.messages,
+          [args.wsChatId!]: chatMsgs.map((m) => {
+            if (!('tempId' in m) || m.tempId !== args.tempId) return m;
+            return { ...(m as TempMessage), queued: true } as TempMessage;
+          }),
+        },
+      };
+    });
+  }
 }
 
 interface DispatchEditArgs {

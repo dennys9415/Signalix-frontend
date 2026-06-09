@@ -6,9 +6,16 @@ interface Props {
 }
 
 export function StatusIcon({ state, light = false }: Props) {
+  // v0.14.0 fix — `read` must render in a visibly distinct blue from
+  // `delivered` (gray) in BOTH modes, including over the blue `isMine`
+  // bubble. v0.1.0 used `dark:text-white/70` which silently turned the
+  // read tick the same color as the bubble text → indistinguishable
+  // from delivered. Cyan #34c8ff (Apple system-blue-light) pops on the
+  // blue bubble; #007aff (Apple system-blue) on a transparent
+  // background.
   const c = light
-    ? { read: 'text-white/80', tick: 'text-white/50', clock: 'text-white/30' }
-    : { read: 'text-[#007aff] dark:text-white/70', tick: 'text-[#aeaeb2] dark:text-white/40', clock: 'text-[#c7c7cc] dark:text-white/20' };
+    ? { read: 'text-[#34c8ff]', tick: 'text-white/55', clock: 'text-white/35' }
+    : { read: 'text-[#007aff] dark:text-[#0a84ff]', tick: 'text-[#aeaeb2] dark:text-white/40', clock: 'text-[#c7c7cc] dark:text-white/20' };
 
   if (state === MessageLifecycleState.READ) {
     return <span title="Read" className={`inline-flex ${c.read}`}><DoubleCheckIcon /></span>;

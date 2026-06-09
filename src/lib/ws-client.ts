@@ -21,11 +21,14 @@ const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:5000';
 
 type ServerEventHandler = (event: string, payload: unknown) => void;
 
+const HEARTBEAT_INTERVAL_MS = 30_000;
+
 class WsClient {
   private socket: WebSocket | null = null;
   private accessToken: string | null = null;
   private shouldReconnect = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private handler: ServerEventHandler | null = null;
 
   setHandler(handler: ServerEventHandler): void {
@@ -44,6 +47,10 @@ class WsClient {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
     if (this.socket) {
       this.socket.close();
       this.socket = null;
@@ -51,13 +58,25 @@ class WsClient {
     this.accessToken = null;
   }
 
-  send(event: string, payload: unknown): void {
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+  /**
+   * v0.14.0 — returns `true` when the frame was handed to the browser
+   * for transmission, `false` when the socket is closed/closing. The
+   * caller can use this to decide whether to mark the temp message as
+   * "queued" until the WS reconnects.
+   */
+  send(event: string, payload: unknown): boolean {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return false;
     this.socket.send(JSON.stringify({ event, payload }));
+    return true;
   }
 
-  sendMessageSend(payload: ClientMessageSendPayload): void {
-    this.send(ClientEvent.MESSAGE_SEND, payload);
+  /** v0.14.0 — `true` iff the underlying socket is OPEN. */
+  isConnected(): boolean {
+    return !!this.socket && this.socket.readyState === WebSocket.OPEN;
+  }
+
+  sendMessageSend(payload: ClientMessageSendPayload): boolean {
+    return this.send(ClientEvent.MESSAGE_SEND, payload);
   }
 
   sendMessageDelivered(payload: Pick<MessageStatusPayload, 'messageId' | 'chatId'>): void {
@@ -114,6 +133,13 @@ class WsClient {
       if (!this.accessToken) return;
       const p: WsAuthenticatePayload = { accessToken: this.accessToken };
       ws.send(JSON.stringify({ event: ClientEvent.AUTHENTICATE, payload: p }));
+      // v0.14.0 — keep the connection healthy with a periodic ping so
+      // idle proxies don't drop us and the realtime layer's
+      // connection-manager sees activity.
+      if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = setInterval(() => {
+        if (this.isConnected()) this.sendHeartbeat();
+      }, HEARTBEAT_INTERVAL_MS);
     };
 
     ws.onmessage = (ev: MessageEvent<string>) => {
@@ -128,6 +154,7 @@ class WsClient {
 
     ws.onclose = () => {
       this.socket = null;
+      if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
       if (this.shouldReconnect) {
         this.reconnectTimer = setTimeout(() => this.openSocket(), 3000);
       }

@@ -1,6 +1,6 @@
 # Signalix Frontend
 
-**Version: v0.13.0**
+**Version: v0.14.0**
 
 Next.js 15 chat client for Signalix. Direct + group chats, text / image / file / **voice note** messages, reactions, replies, forwards, edit, delete-for-me / for-everyone, link previews, typing indicators, presence, avatar upload, draft chat UX, and the full auth stack (local + Google / GitHub / Apple OAuth). Installable as a Progressive Web App with Web Push notifications. **v0.10.0 extends the beta E2EE from direct chats to group text messages** via per-recipient encryption fan-out: the sender runs the v0.9.x X3DH-style handshake once per recipient device and ships N envelopes; each recipient receives only their own copy. Group media, files, and voice notes still flow as plaintext.
 
@@ -279,6 +279,27 @@ Available since v0.6.1. Composer mic button replaces the send button while the t
 - No waveform rendering, no playback speed, no scrubbing (seek-to-position) — only play/pause + progress.
 - Duration is recorder-reported; once `<audio>` metadata loads, the player overrides it with the file's real duration.
 - iOS requires the user to interact before mic capture works (browser policy).
+
+## v0.14.0 changelog — Read receipts + delivery reliability
+
+### Added
+- **`StatusIcon`** — `read` variant is now Apple system-blue (`#007aff` / dark `#0a84ff`) on transparent backgrounds and cyan `#34c8ff` on the blue `isMine` bubble. All 8 call sites pass `light` to pick the bubble-friendly variant.
+- **`ws-client.ts`** — `send()` returns `boolean` (false when socket closed); 30s heartbeat while connected; cleanup on close + disconnect; `isConnected()` helper.
+- **`chat.store`** — `TempMessage.queued` + `outboxAttempts` fields, `drainOutbox()` and `syncSinceLastEvent()` actions both fired by the `ServerEvent.AUTHENTICATED` handler (covers initial connect + every reconnect). The MESSAGE_NEW handler now guards the unread `+1` with `chatTracked` so a brand-new chat doesn't double-count.
+- **`MessageView`** — `markedReadRef: Set<string>` per chat; effect now marks every unread message from another participant on chat open (and as new messages arrive while the chat is active), not just the last one.
+- **`MessageInfoModal.tsx`** *(new)* — opened from the message actions menu ("Info" item, sender-only). Direct: sent/delivered/read times stacked. Group: bucketed Read by / Delivered to / Sent to with per-participant avatar + timestamp.
+- **`api-client.ts`** — `getMessages({ since })` and `getMessageRecipientsStatus(messageId)` wrappers.
+- **`MobileSearchOverlay.openUserResult`** — mirrors `ChatSidebar.startNewChat`: existing real direct chat → push to it; otherwise `openDraftChat(user)` + push to `/chats`. No more `/chats/draft:<userId>` "Loading…" flash.
+
+### Fixed
+- Read tick no longer collapses to white in dark mode (Issue 1).
+- All unread messages get the read receipt on chat open — not only the most recent (Issue 2).
+- Brand-new chat first message no longer shows badge 2 instead of 1 (Issue 3 — race between `loadChats` and `MESSAGE_NEW` increment).
+- Mobile draft chat URL stays at `/chats` (Issue 4).
+
+### Not changed
+- State machine, WS event names + payloads, E2EE pipeline, presence integration — all untouched.
+- No IDB schema bump.
 
 ## v0.13.0 changelog — Message search (E2EE-aware)
 

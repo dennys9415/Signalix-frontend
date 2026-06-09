@@ -16,7 +16,7 @@ import { useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ChatDTO, MessageSearchResultDTO, PublicUserDTO } from '@signalix/contracts';
 import { ChatType } from '@signalix/contracts';
-import { useChatStore } from '../store/chat.store';
+import { useChatStore, DRAFT_PREFIX } from '../store/chat.store';
 import { useAuthStore } from '../store/auth.store';
 import { useSidebar } from '../lib/sidebar-context';
 import { searchMessages, searchUsers } from '../lib/api-client';
@@ -37,6 +37,7 @@ export function MobileSearchOverlay({ open, onClose }: Props) {
   const session = useAuthStore((s) => s.session);
   const chats = useChatStore((s) => s.chats);
   const messages = useChatStore((s) => s.messages);
+  const openDraftChat = useChatStore((s) => s.openDraftChat);
 
   const [query, setQuery] = useState('');
   const [users, setUsers] = useState<PublicUserDTO[]>([]);
@@ -105,7 +106,24 @@ export function MobileSearchOverlay({ open, onClose }: Props) {
   function openUserResult(u: PublicUserDTO) {
     setSidebarOpen(false);
     onClose();
-    router.push(`/chats/draft:${u.id}`);
+    // v0.14.0 fix — draft chats live at `/chats`, never at
+    // `/chats/draft:<id>` (the dynamic route would show "Loading…"
+    // while the redirect effect runs). If an existing real direct
+    // chat with this user is already in the store, route to it;
+    // otherwise bootstrap an in-memory draft and route to /chats so
+    // ChatsIndexPage renders it via `currentDraft`.
+    const existing = chats.find(
+      (c) =>
+        c.type === ChatType.DIRECT
+        && !c.id.startsWith(DRAFT_PREFIX)
+        && c.participants.some((p) => p.userId === u.id),
+    );
+    if (existing) {
+      router.push(`/chats/${existing.id}`);
+    } else {
+      openDraftChat(u);
+      router.push('/chats');
+    }
   }
 
   if (!open) return null;

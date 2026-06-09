@@ -21,6 +21,7 @@ import { StatusIcon } from './StatusIcon';
 import { MessageInput } from './MessageInput';
 import { ContactProfileModal } from './ContactProfileModal';
 import { GroupInfoModal } from './GroupInfoModal';
+import { MessageInfoModal } from './MessageInfoModal';
 import { VoiceBubble } from './VoiceBubble';
 
 const EMPTY_MESSAGES: StoredMessage[] = [];
@@ -265,6 +266,8 @@ interface BubbleProps {
   getSenderName: (userId: string) => string;
   onReply: (m: MessageDTO) => void;
   onForward: (m: MessageDTO) => void;
+  /** v0.14.0 — open the Message Info modal for `m`. */
+  onShowInfo: (m: MessageDTO) => void;
   /** Highlight every occurrence of this string inside TEXT bubbles. */
   searchTerm?: string;
   /** This message is one of the in-chat search matches. */
@@ -273,7 +276,7 @@ interface BubbleProps {
   isActiveMatch?: boolean;
 }
 
-function MessageBubble({ m, currentUserId, chatId, isGroup, getSenderName, onReply, onForward, searchTerm, isMatch, isActiveMatch }: BubbleProps) {
+function MessageBubble({ m, currentUserId, chatId, isGroup, getSenderName, onReply, onForward, onShowInfo, searchTerm, isMatch, isActiveMatch }: BubbleProps) {
   const deleteMessageForMe = useChatStore((s) => s.deleteMessageForMe);
   const deleteMessageForEveryone = useChatStore((s) => s.deleteMessageForEveryone);
   const editMessage = useChatStore((s) => s.editMessage);
@@ -435,6 +438,13 @@ function MessageBubble({ m, currentUserId, chatId, isGroup, getSenderName, onRep
                 <MenuItem icon={<ForwardIcon />} label="Forward" onClick={() => { closeMenu(); if ('id' in m) onForward(m as MessageDTO); }} />
                 {!isImage && !isFile && <MenuItem icon={<CopyIcon />} label="Copy" onClick={handleCopy} />}
                 {isMine && !isImage && !isFile && <MenuItem icon={<PencilMenuIcon />} label="Edit" onClick={startEditing} />}
+                {isMine && (
+                  <MenuItem
+                    icon={<InfoIcon />}
+                    label="Info"
+                    onClick={() => { closeMenu(); if ('id' in m) onShowInfo(m as MessageDTO); }}
+                  />
+                )}
                 <div className="my-1 border-t border-black/[0.06] dark:border-white/[0.06]" />
                 <MenuItem icon={<TrashMenuIcon />} label="Delete" danger onClick={() => setMenuMode('delete')} />
               </>
@@ -580,7 +590,7 @@ function MessageBubble({ m, currentUserId, chatId, isGroup, getSenderName, onRep
                     </p>
                     <div className={`flex items-center gap-1 mt-0.5 ${isMine ? 'justify-end' : 'justify-start'}`}>
                       <span className={`text-[11px] ${isMine ? 'text-white/60 dark:text-white/50' : 'text-[#8e8e93] dark:text-[#9a9aa3]'}`}>{time}</span>
-                      {isMine && <StatusIcon state={state} />}
+                      {isMine && <StatusIcon state={state} light />}
                     </div>
                   </>
                 ) : (
@@ -594,7 +604,7 @@ function MessageBubble({ m, currentUserId, chatId, isGroup, getSenderName, onRep
                     <div className={`flex items-center gap-1 mt-0.5 ${isMine ? 'justify-end' : 'justify-start'}`}>
                       {isEdited && <span className={`text-[11px] ${isMine ? 'text-white/55 dark:text-white/45' : 'text-[#8e8e93] dark:text-[#9a9aa3]'}`}>Edited ·</span>}
                       <span className={`text-[11px] ${isMine ? 'text-white/60 dark:text-white/50' : 'text-[#8e8e93] dark:text-[#9a9aa3]'}`}>{time}</span>
-                      {isMine && <StatusIcon state={state} />}
+                      {isMine && <StatusIcon state={state} light />}
                     </div>
                   </>
                 )}
@@ -683,6 +693,8 @@ export function MessageView({ chat }: Props) {
   const [deletingChat, setDeletingChat] = useState(false);
   const [replyingTo, setReplyingTo] = useState<{ messageId: string; senderName: string; ciphertext: string; messageType?: MessageType } | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<MessageDTO | null>(null);
+  // v0.14.0 — Message Info modal target. `null` when closed.
+  const [infoMessage, setInfoMessage] = useState<MessageDTO | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -716,11 +728,26 @@ export function MessageView({ chat }: Props) {
 
   useEffect(() => { loadMessages(chat.id); }, [chat.id, loadMessages]);
 
+  // v0.14.0 fix — mark EVERY unread message from another participant
+  // as read, not just the last one. The realtime layer skips
+  // broadcasting MESSAGE_READ back to the originating user, so we
+  // can't rely on our own local state advancing past 'delivered'.
+  // Track marked ids in a ref so a re-run (new message arrives while
+  // chat is active) doesn't re-fire markRead for messages we already
+  // marked this session. The ref resets per chat-open.
+  const markedReadRef = useRef<Set<string>>(new Set());
+  useEffect(() => { markedReadRef.current = new Set(); }, [chat.id]);
   useEffect(() => {
-    const lastUnread = [...messages]
-      .reverse()
-      .find((m): m is MessageDTO => 'id' in m && m.senderId !== currentUserId && m.state !== 'read');
-    if (lastUnread) markRead(chat.id, lastUnread.id);
+    const toMark = messages.filter((m): m is MessageDTO => (
+      'id' in m
+      && m.senderId !== currentUserId
+      && m.state !== 'read'
+      && !markedReadRef.current.has(m.id)
+    ));
+    for (const m of toMark) {
+      markRead(chat.id, m.id);
+      markedReadRef.current.add(m.id);
+    }
   }, [messages, currentUserId, chat.id, markRead]);
 
   useEffect(() => {
@@ -1127,6 +1154,7 @@ export function MessageView({ chat }: Props) {
               getSenderName={getSenderName}
               onReply={handleReply}
               onForward={handleForward}
+              onShowInfo={(target) => setInfoMessage(target)}
               searchTerm={isMatch ? inlineHighlight : ''}
               isMatch={isMatch}
               isActiveMatch={isActiveMatch}
@@ -1183,6 +1211,16 @@ export function MessageView({ chat }: Props) {
           currentUserId={currentUserId}
           onForward={handleForwardTo}
           onClose={() => setForwardingMessage(null)}
+        />
+      )}
+
+      {infoMessage && (
+        <MessageInfoModal
+          messageId={infoMessage.id}
+          chat={chat}
+          sentAt={infoMessage.createdAt}
+          currentUserId={currentUserId}
+          onClose={() => setInfoMessage(null)}
         />
       )}
     </div>
@@ -1392,6 +1430,16 @@ function CopyIcon() {
   );
 }
 
+function InfoIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="w-4 h-4 fill-none stroke-current stroke-[1.5]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="8" cy="8" r="6" />
+      <line x1="8" y1="7" x2="8" y2="11.5" />
+      <circle cx="8" cy="4.8" r="0.6" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 function PencilMenuIcon() {
   return (
     <svg viewBox="0 0 16 16" className="w-4 h-4 fill-none stroke-current stroke-[1.5]" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1469,7 +1517,7 @@ function FileCard({ fileInfo, time, isMine, state, messageId }: FileCardProps) {
         <p className="text-[13px] text-[#aeaeb2] dark:text-[#636375] italic">File unavailable</p>
         <div className={`flex items-center gap-1 mt-1 ${isMine ? 'justify-end' : 'justify-start'}`}>
           <span className="text-[11px] text-[#8e8e93] dark:text-[#636375]">{time}</span>
-          {isMine && <StatusIcon state={state} />}
+          {isMine && <StatusIcon state={state} light />}
         </div>
       </div>
     );
@@ -1496,7 +1544,7 @@ function FileCard({ fileInfo, time, isMine, state, messageId }: FileCardProps) {
       </div>
       <div className={`flex items-center gap-1 px-3.5 pb-2 ${isMine ? 'justify-end' : 'justify-start'}`}>
         <span className="text-[11px] text-[#8e8e93] dark:text-[#636375]">{time}</span>
-        {isMine && <StatusIcon state={state} />}
+        {isMine && <StatusIcon state={state} light />}
       </div>
     </div>
   );
@@ -1523,7 +1571,7 @@ function VoiceBubbleSection({ text, time, isMine, state }: VoiceBubbleSectionPro
         <p className="text-[13px] text-[#aeaeb2] dark:text-[#636375] italic">Voice message unavailable</p>
         <div className={`flex items-center gap-1 mt-1 ${isMine ? 'justify-end' : 'justify-start'}`}>
           <span className={`text-[11px] ${isMine ? 'text-white/60 dark:text-white/50' : 'text-[#8e8e93] dark:text-[#9a9aa3]'}`}>{time}</span>
-          {isMine && <StatusIcon state={state} />}
+          {isMine && <StatusIcon state={state} light />}
         </div>
       </div>
     );
@@ -1540,7 +1588,7 @@ function VoiceBubbleSection({ text, time, isMine, state }: VoiceBubbleSectionPro
       />
       <div className={`flex items-center gap-1 px-3.5 pb-2 ${isMine ? 'justify-end' : 'justify-start'}`}>
         <span className={`text-[11px] ${isMine ? 'text-white/60 dark:text-white/50' : 'text-[#8e8e93] dark:text-[#9a9aa3]'}`}>{time}</span>
-        {isMine && <StatusIcon state={state} />}
+        {isMine && <StatusIcon state={state} light />}
       </div>
     </div>
   );
@@ -1579,7 +1627,7 @@ function ImageBubble({ info, time, isMine, state }: ImageBubbleProps) {
       )}
       <div className={`flex items-center gap-1 px-3 py-1.5 ${isMine ? 'justify-end' : 'justify-start'}`}>
         <span className={`text-[11px] ${isMine ? 'text-white/60 dark:text-white/50' : 'text-[#8e8e93] dark:text-[#9a9aa3]'}`}>{time}</span>
-        {isMine && <StatusIcon state={state} />}
+        {isMine && <StatusIcon state={state} light />}
       </div>
     </>
   );
@@ -1607,7 +1655,7 @@ function BrokenAttachment({ kind, time, isMine, state }: BrokenAttachmentProps) 
       </p>
       <div className={`flex items-center gap-1 px-3.5 pb-2 ${isMine ? 'justify-end' : 'justify-start'}`}>
         <span className={`text-[11px] ${isMine ? 'text-white/60 dark:text-white/50' : 'text-[#8e8e93] dark:text-[#9a9aa3]'}`}>{time}</span>
-        {isMine && <StatusIcon state={state} />}
+        {isMine && <StatusIcon state={state} light />}
       </div>
     </>
   );
