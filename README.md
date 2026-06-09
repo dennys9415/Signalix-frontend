@@ -1,6 +1,6 @@
 # Signalix Frontend
 
-**Version: v0.15.0**
+**Version: v0.16.0**
 
 Next.js 15 chat client for Signalix. Direct + group chats, text / image / file / **voice note** messages, reactions, replies, forwards, edit, delete-for-me / for-everyone, link previews, typing indicators, presence, avatar upload, draft chat UX, and the full auth stack (local + Google / GitHub / Apple OAuth). Installable as a Progressive Web App with Web Push notifications. **v0.10.0 extends the beta E2EE from direct chats to group text messages** via per-recipient encryption fan-out: the sender runs the v0.9.x X3DH-style handshake once per recipient device and ships N envelopes; each recipient receives only their own copy. Group media, files, and voice notes still flow as plaintext.
 
@@ -279,6 +279,14 @@ Available since v0.6.1. Composer mic button replaces the send button while the t
 - No waveform rendering, no playback speed, no scrubbing (seek-to-position) — only play/pause + progress.
 - Duration is recorder-reported; once `<audio>` metadata loads, the player overrides it with the file's real duration.
 - iOS requires the user to interact before mic capture works (browser policy).
+
+## v0.16.0 changelog — Mobile foundation MVP (frontend no-op)
+
+### Not changed
+- v0.16.0 introduces the new `Signalix-mobile` client (React Native + Expo SDK 54). The web frontend itself is byte-identical to v0.15.0 — no new pages, no API client changes, no store changes, no Tailwind tokens added. The mobile app reuses every existing REST endpoint and WebSocket event.
+
+### Cross-client note
+- Web↔web E2EE is unchanged in v0.16.0. The mobile app is **plaintext only** until v0.17.0 (E2EE port via `@stablelib/*`). Mobile↔web and mobile↔mobile conversations degrade to plaintext; web↔web conversations stay fully encrypted. This degradation is documented in [`docs/MOBILE_ARCHITECTURE.md`](../docs/MOBILE_ARCHITECTURE.md).
 
 ## v0.15.0 changelog — Key backup & device recovery
 
