@@ -260,6 +260,28 @@ export default function ProfilePage() {
           </div>
         </section>
 
+        {/* Security shortcut */}
+        <section>
+          <SectionLabel>Security</SectionLabel>
+          <Link
+            href="/settings/security"
+            className="block rounded-3xl bg-white/55 dark:bg-white/[0.04] backdrop-blur-2xl shadow-glass-sm border border-white/60 dark:border-white/[0.06] px-4 py-3.5 hover:bg-white/70 dark:hover:bg-white/[0.06] transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <span className="flex-shrink-0 w-7 h-7 flex items-center justify-center text-[#007aff] dark:text-[#0a84ff]">
+                <svg viewBox="0 0 20 20" className="w-5 h-5 fill-none stroke-current stroke-[1.5]" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M10 17s6-3 6-8V4l-6-2-6 2v5c0 5 6 8 6 8z" />
+                </svg>
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[14px] font-medium text-[#1d1d1f] dark:text-[#f5f5f7]">Encrypted backup & recovery</p>
+                <p className="text-[12px] text-[#8e8e93] dark:text-[#9a9aa3]">Create or restore an encrypted backup of your device keys.</p>
+              </div>
+              <span className="text-[#c7c7cc] dark:text-[#48484a]">›</span>
+            </div>
+          </Link>
+        </section>
+
         {/* Push notifications */}
         <PushSettingsCard />
 

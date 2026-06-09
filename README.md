@@ -1,6 +1,6 @@
 # Signalix Frontend
 
-**Version: v0.14.0**
+**Version: v0.15.0**
 
 Next.js 15 chat client for Signalix. Direct + group chats, text / image / file / **voice note** messages, reactions, replies, forwards, edit, delete-for-me / for-everyone, link previews, typing indicators, presence, avatar upload, draft chat UX, and the full auth stack (local + Google / GitHub / Apple OAuth). Installable as a Progressive Web App with Web Push notifications. **v0.10.0 extends the beta E2EE from direct chats to group text messages** via per-recipient encryption fan-out: the sender runs the v0.9.x X3DH-style handshake once per recipient device and ships N envelopes; each recipient receives only their own copy. Group media, files, and voice notes still flow as plaintext.
 
@@ -279,6 +279,24 @@ Available since v0.6.1. Composer mic button replaces the send button while the t
 - No waveform rendering, no playback speed, no scrubbing (seek-to-position) — only play/pause + progress.
 - Duration is recorder-reported; once `<audio>` metadata loads, the player overrides it with the file's real duration.
 - iOS requires the user to interact before mic capture works (browser policy).
+
+## v0.15.0 changelog — Key backup & device recovery
+
+### Added
+- **`src/lib/crypto/bip39.ts`** *(new)* — 256-word curated English wordlist + helpers. `generateRecoveryPhrase()` returns 12 words (96 bits entropy); `normalizeRecoveryPhrase` accepts any whitespace/dash/case variant; `phraseToBytes` emits the 12-byte index vector fed to PBKDF2.
+- **`src/lib/crypto/backup.ts`** *(new)* — `createBackup(phrase)` walks every crypto IDB store (identity, signed-pre-keys, pre-keys, plaintext-cache, fingerprints), exports CryptoKey instances as JWK, encrypts the JSON with PBKDF2-SHA-256 (600k iter, 16-byte salt) + AES-256-GCM (12-byte IV). File format: ASCII magic `SLXBKP01` + version byte + salt + IV + ciphertext. `restoreBackup(file, phrase)` reverses; returns `RestoreSummary`. `deleteCryptoDb()` for the danger-zone wipe.
+- **`/settings/security` page** *(new)* — Create / Restore / Wipe flows. Recovery phrase is shown in a 12-cell grid with Copy + "I've written it down" actions; restore success shows an emerald summary card with counts + Reload-to-apply.
+- **`/settings/profile`** gains a "Security" section linking to the new page so the feature is discoverable.
+- **`src/lib/crypto/bip39.test.ts`** *(new)* — 7 cases; 36/36 total.
+
+### Not changed
+- Existing IDB schema, E2EE pipeline, fan-out, media path, safety-number flow — all untouched.
+- No new API endpoints, no contract changes.
+
+### Known limitations
+- Wordlist is 256 curated words, not full BIP39 2048.
+- Backup is download-only; no server-side storage in v0.15.0.
+- IDB roundtrip not unit-tested (vitest node env lacks IndexedDB); validated manually via the "Delete IDB → Restore → chats decrypt" scenario.
 
 ## v0.14.0 changelog — Read receipts + delivery reliability
 
